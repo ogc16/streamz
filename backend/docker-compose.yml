@@ -1,0 +1,162 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: streamz
+      POSTGRES_USER: streamz
+      POSTGRES_PASSWORD: streamz_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streamz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: gateway
+    ports:
+      - "3000:3000"
+    environment:
+      GATEWAY_PORT: 3000
+      JWT_SECRET: ${JWT_SECRET}
+      AUTH_SERVICE_URL: http://auth-service:4001
+      VIDEO_SERVICE_URL: http://video-service:4002
+      PURCHASE_SERVICE_URL: http://purchase-service:4003
+      STREAMING_SERVICE_URL: http://streaming-service:4004
+      WEBHOOK_SERVICE_URL: http://webhook-service:4005
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: auth
+    ports:
+      - "4001:4001"
+    environment:
+      AUTH_SERVICE_PORT: 4001
+      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  video-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: video
+    ports:
+      - "4002:4002"
+    environment:
+      VIDEO_SERVICE_PORT: 4002
+      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      JWT_SECRET: ${JWT_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  purchase-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: purchase
+    ports:
+      - "4003:4003"
+    environment:
+      PURCHASE_SERVICE_PORT: 4003
+      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_CURRENCY: usd
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  streaming-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: streaming
+    ports:
+      - "4004:4004"
+    environment:
+      STREAMING_SERVICE_PORT: 4004
+      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      JWT_SECRET: ${JWT_SECRET}
+      MUX_TOKEN_ID: ${MUX_TOKEN_ID}
+      MUX_TOKEN_SECRET: ${MUX_TOKEN_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  webhook-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: webhook
+    ports:
+      - "4005:4005"
+    environment:
+      WEBHOOK_SERVICE_PORT: 4005
+      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      MUX_TOKEN_ID: ${MUX_TOKEN_ID}
+      MUX_TOKEN_SECRET: ${MUX_TOKEN_SECRET}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
