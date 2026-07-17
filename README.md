@@ -51,26 +51,44 @@ A Netflix/Hulu-style pay-per-view video streaming app with native iOS (SwiftUI) 
 cd backend
 docker-compose up -d
 
-# Install dependencies and run services
-# Each service can be run independently:
-cd services/auth && npm install && npm run dev
-cd services/video && npm install && npm run dev
-# ... etc, or use the API Gateway to route
-cd api-gateway && npm install && npm run dev
+# Install all dependencies (uses npm workspaces)
+npm install
+
+# Run individual services
+npm run dev -w services/auth
+npm run dev -w services/video
+npm run dev -w services/purchase
+npm run dev -w services/streaming
+npm run dev -w services/webhook
+npm run dev -w api-gateway
 ```
 
 ### Environment Variables
 
-Create a `.env` file in `backend/`:
+Copy `backend/.env.example` to `backend/.env` and fill in your credentials:
 
 ```env
+DATABASE_URL=postgresql://postgres:password@localhost:5432/streamz
 JWT_SECRET=your-secret
 JWT_REFRESH_SECRET=your-refresh-secret
+JWT_EXPIRES_IN=7d
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_CURRENCY=usd
 MUX_TOKEN_ID=your-mux-id
 MUX_TOKEN_SECRET=your-mux-secret
 ```
+
+> **Security:** `.env` files are git-ignored. Never commit secrets.
+
+### Database Setup
+
+```bash
+cd backend
+npm run migrate
+```
+
+The migration is idempotent — safe to run multiple times.
 
 ### Android Build
 
@@ -82,16 +100,20 @@ cd android
 
 ### iOS Build
 
-Open `ios/Streamz/` in Xcode, add Stripe package dependency (`https://github.com/stripe/stripe-ios`), then build & run.
+1. Open `ios/Streamz/` in Xcode
+2. Add Stripe package dependency: `https://github.com/stripe/stripe-ios` (latest major version)
+3. Replace `pk_test_placeholder` in `StreamzApp.swift` with your Stripe publishable key
+4. Build & run (⌘R)
 
 ## Payment Flow
 
 1. User browses catalog → selects a video
 2. Chooses **Buy** (permanent) or **Rent** (time-limited)
-3. Backend creates a Stripe PaymentIntent → returns `client_secret`
-4. Mobile app presents Stripe PaymentSheet → user pays
-5. Stripe webhook confirms → purchase recorded in DB → access granted
-6. User streams video via Mux HLS URL
+3. Backend validates purchase type against video's supported types
+4. Backend creates a Stripe PaymentIntent → returns `client_secret`
+5. Mobile app presents Stripe PaymentSheet → user pays
+6. Stripe webhook confirms → purchase recorded in DB (idempotent via `ON CONFLICT`) → access granted
+7. User streams video via Mux HLS URL
 
 ## API Endpoints
 
@@ -107,24 +129,61 @@ Open `ios/Streamz/` in Xcode, add Stripe package dependency (`https://github.com
 - `GET /api/videos/featured` — Featured videos
 - `GET /api/videos/genres` — Genre list with counts
 - `GET /api/videos/:id` — Video detail + purchase status
+- `POST /api/videos` — Create video (admin)
 
 ### Purchases
-- `POST /api/purchases/create-payment-intent` — `{ videoId, type }`
+- `POST /api/purchases/create-payment-intent` — `{ videoId, type }` (validates purchase type)
 - `GET /api/purchases` — User's purchase history
 - `GET /api/purchases/check/:videoId` — Access check
 
 ### Streaming
+- `POST /api/stream/upload-url` — Create Mux upload URL for a video
+- `POST /api/stream/upload-complete` — Finalize upload (looks up video by upload ID)
 - `GET /api/stream/playback/:playbackId` — Signed playback URL
+- `POST /api/stream/thumbnail/:playbackId` — Generate thumbnail
 
 ### Webhooks
-- `POST /webhooks/stripe` — Stripe event handling
+- `POST /webhooks/stripe` — Stripe event handling (idempotent via `ON CONFLICT`)
 - `POST /webhooks/mux` — Mux asset processing events
 - `POST /webhooks/cleanup-expired` — Expired rental cleanup
 
 ## Database Schema
 
 Three service-specific schemas in PostgreSQL:
+
 - `auth_service.users` — User accounts, Stripe customer IDs
-- `video_service.videos` — Video metadata, Mux asset/playback IDs
-- `purchase_service.purchases` — Payment records, rental expiry
+- `video_service.videos` — Video metadata, Mux asset/playback IDs (nullable before upload)
+- `purchase_service.purchases` — Payment records, rental expiry (idempotent on `stripe_payment_intent_id`)
 - `auth_tokens.refresh_tokens` — Token rotation
+
+## Project Structure
+
+```
+streamz/
+├── backend/
+│   ├── api-gateway/        # Request routing, JWT validation
+│   ├── migrations/         # SQL schema (idempotent)
+│   ├── services/
+│   │   ├── auth/           # Registration, login, tokens
+│   │   ├── video/          # Catalog, search, access-aware listings
+│   │   ├── purchase/       # Stripe PaymentIntent, purchase history
+│   │   ├── streaming/      # Mux uploads, HLS playback
+│   │   └── webhook/        # Stripe + Mux webhook handlers
+│   ├── shared/             # Shared types, schemas, errors (@streamz/shared)
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── ios/Streamz/
+│   ├── Models/             # Video, User, Purchase
+│   ├── Services/           # APIClient, AuthService, VideoService, etc.
+│   ├── ViewModels/         # AuthViewModel, HomeViewModel, etc.
+│   ├── Views/              # SwiftUI views
+│   └── Helpers/            # KeychainManager, StripeManager
+├── android/                # Jetpack Compose Android app
+├── .gitignore
+├── WALKTHROUGH.md          # Detailed change log
+└── README.md
+```
+
+## License
+
+Private — All rights reserved.
