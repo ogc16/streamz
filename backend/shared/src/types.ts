@@ -3,6 +3,14 @@ export interface JWTPayload {
   email: string
 }
 
+declare global {
+  namespace Express {
+    interface Request {
+      user?: JWTPayload
+    }
+  }
+}
+
 export interface UserDTO {
   id: string
   email: string

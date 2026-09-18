@@ -1,0 +1,14 @@
+{
+  "name": "streamz-design",
+  "version": "1.0.0",
+  "description": "Google Stitch SDK tooling for generating Streamz UI design variants",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "list-tools": "node scripts/list-tools.mjs"
+  },
+  "dependencies": {
+    "@google/stitch-sdk": "^0.1.0"
+  }
+}

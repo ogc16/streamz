@@ -17,7 +17,7 @@ const pool = new Pool({
   max: 10,
 })
 
-const { Video, Asset } = new Mux({
+const mux = new Mux({
   tokenId: process.env.MUX_TOKEN_ID!,
   tokenSecret: process.env.MUX_TOKEN_SECRET!,
 })
@@ -64,12 +64,11 @@ app.post('/api/stream/upload-url', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'videoId is required' })
     }
 
-    const upload = await Video.Uploads.create({
+    const upload = await mux.video.uploads.create({
       new_asset_settings: {
         playback_policy: ['public'],
         mp4_support: 'none',
         normalize_audio: true,
-        video_quality: 'basic',
       },
       cors_origin: '*',
     })
@@ -95,9 +94,9 @@ app.post('/api/stream/upload-complete', authMiddleware, async (req, res) => {
   try {
     const { uploadId } = req.body
 
-    const upload = await Video.Uploads.get(uploadId)
+    const upload = await mux.video.uploads.retrieve(uploadId)
     if (upload.asset_id) {
-      const asset = await Video.Assets.get(upload.asset_id)
+      const asset = await mux.video.assets.retrieve(upload.asset_id)
 
       // Look up video by upload ID instead of trusting client-provided videoId
       const videoResult = await pool.query(
@@ -160,7 +159,7 @@ app.get('/api/stream/playback/:playbackId', authMiddleware, async (req, res) => 
        WHERE user_id = $1 AND video_id = $2 AND status = 'completed'
        AND (expires_at IS NULL OR expires_at > NOW())
        LIMIT 1`,
-      [req.user.userId, videoId]
+      [req.user!.userId, videoId]
     )
 
     if (purchaseResult.rows.length === 0) {

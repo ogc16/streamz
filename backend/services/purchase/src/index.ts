@@ -18,7 +18,7 @@ const pool = new Pool({
 })
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia',
+  apiVersion: '2025-02-24.acacia',
 })
 
 const redis = new Redis({
@@ -60,7 +60,7 @@ function purchaseToDTO(p: any): PurchaseDTO {
 app.post('/api/purchases/create-payment-intent', authMiddleware, async (req, res) => {
   try {
     const { videoId, type } = paymentIntentSchema.parse(req.body)
-    const userId = req.user.userId
+    const userId = req.user!.userId
 
     const videoResult = await pool.query(
       'SELECT * FROM video_service.videos WHERE id = $1',
@@ -141,7 +141,7 @@ app.post('/api/purchases/create-payment-intent', authMiddleware, async (req, res
 
 app.get('/api/purchases', authMiddleware, async (req, res) => {
   try {
-    const userId = req.user.userId
+    const userId = req.user!.userId
 
     const result = await pool.query(
       `SELECT p.*, v.title, v.thumbnail_url, v.mux_playback_id, v.duration_seconds
@@ -171,7 +171,7 @@ app.get('/api/purchases', authMiddleware, async (req, res) => {
 app.get('/api/purchases/check/:videoId', authMiddleware, async (req, res) => {
   try {
     const { videoId } = req.params
-    const userId = req.user.userId
+    const userId = req.user!.userId
 
     const result = await pool.query(
       `SELECT type, status, expires_at FROM purchase_service.purchases

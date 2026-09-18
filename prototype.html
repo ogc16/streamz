@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Streamz — Pay-Per-View Video Streaming</title>
+<style>
+/* ============ Streamz design tokens (match android/app ui/theme) ============ */
+:root {
+  --bg: #141414;
+  --bg-elev: #1E1E1E;
+  --bg-card: #2A2A2A;
+  --bg-deep: #111111;
+  --border: #333333;
+  --text: #FFFFFF;
+  --text-dim: #B3B3B3;
+  --text-muted: #808080;
+  --brand: #E50914;
+  --brand-hover: #B20710;
+  --brand-active: #FF1A25;
+  --success: #46D369;
+  --gold: #FFD700;
+  --danger: #FF3B30;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 8px 30px rgba(0,0,0,.5);
+  --header-h: 68px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+input, select { font-family: inherit; }
+img { display: block; max-width: 100%; }
+
+/* ============ Layout ============ */
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+.stage { flex: 1 0 auto; }
+.hidden { display: none !important; }
+
+/* ============ Header ============ */
+header {
+  position: sticky; top: 0; z-index: 50; height: var(--header-h);
+  display: flex; align-items: center; gap: 20px;
+  padding: 0 28px;
+  background: linear-gradient(180deg, rgba(20,20,20,.98) 0%, rgba(20,20,20,.92) 75%, rgba(20,20,20,0) 100%);
+  transition: background .3s;
+}
+header.scrolled { background: var(--bg); box-shadow: 0 1px 0 var(--border); }
+.logo {
+  font-size: 24px; font-weight: 800; letter-spacing: -.5px; display: flex; align-items: center; gap: 2px;
+}
+.logo .z { color: var(--brand); }
+.logo b { font-weight: 800; }
+nav { display: flex; align-items: center; gap: 22px; }
+nav a {
+  font-size: 14px; color: var(--text-dim); font-weight: 500; transition: color .15s; cursor: pointer;
+}
+nav a:hover, nav a.active { color: var(--text); }
+.nav-search { margin-left: auto; }
+.nav-actions { display: flex; align-items: center; gap: 12px; }
+.search-box {
+  display: flex; align-items: center; gap: 8px; background: var(--bg-elev);
+  border: 1px solid var(--border); border-radius: 999px; padding: 8px 14px; min-width: 220px;
+  transition: border-color .15s;
+}
+.search-box:focus-within { border-color: var(--brand); }
+.search-box input { background: none; border: none; outline: none; color: var(--text); font-size: 14px; width: 100%; }
+.search-box svg { width: 16px; height: 16px; fill: var(--text-muted); flex: 0 0 auto; }
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--brand);
+  display: grid; place-items: center; font-weight: 700; font-size: 14px; color: #fff; cursor: pointer;
+  user-select: none; position: relative;
+}
+.avatar:hover::after {
+  content: attr(data-name); position: absolute; right: 0; top: 110%; background: var(--bg-elev);
+  border: 1px solid var(--border); padding: 4px 8px; font-size: 12px; white-space: nowrap; border-radius: 6px;
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border-radius: var(--radius-sm); font-weight: 600; font-size: 14px; padding: 11px 22px;
+  transition: transform .08s, background .15s, opacity .15s; line-height: 1;
+}
+.btn:active { transform: scale(.97); }
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover { background: var(--brand-hover); }
+.btn-ghost { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.25); }
+.btn-ghost:hover { background: rgba(255,255,255,.18); }
+.btn-success { background: var(--success); color: #06280f; }
+.btn-success:hover { filter: brightness(1.05); }
+.btn-block { width: 100%; padding: 15px; font-size: 16px; border-radius: 10px; }
+.btn[disabled] { opacity: .45; pointer-events: none; }
+
+/* ============ Auth ============ */
+.auth-screen {
+  min-height: 100vh; display: none; align-items: center; justify-content: center; padding: 24px; position: relative;
+}
+.auth-screen.active { display: flex; }
+.auth-screen .bg {
+  position: fixed; inset: 0; z-index: -1; background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(229,9,20,.22), transparent 60%),
+    radial-gradient(900px 500px at 10% 110%, rgba(70,211,105,.08), transparent 55%),
+    var(--bg-deep);
+}
+.auth-card {
+  width: 380px; max-width: 100%; background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: 16px; padding: 34px 32px; box-shadow: var(--shadow);
+}
+.auth-card .brand-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 6px; }
+.auth-card h1 { text-align: center; font-size: 22px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.auth-card .tagline { text-align: center; color: var(--text-muted); font-size: 13px; margin-bottom: 26px; }
+.field { margin-bottom: 16px; }
+.field label { display: block; font-size: 12px; color: var(--text-dim); font-weight: 500; margin-bottom: 6px; }
+.field input, .field select {
+  width: 100%; padding: 12px 14px; border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--border); color: var(--text); font-size: 15px; outline: none; transition: border-color .15s;
+}
+.field input:focus, .field select:focus { border-color: var(--brand); }
+.field .err { color: var(--danger); font-size: 12px; margin-top: 4px; min-height: 14px; }
+.auth-error {
+  background: rgba(255,59,48,.12); border: 1px solid rgba(255,59,48,.4); color: #ff8a84;
+  padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 16px; display: none;
+}
+.auth-error.show { display: block; }
+.auth-switch { text-align: center; margin-top: 18px; font-size: 14px; color: var(--text-muted); }
+.auth-switch button { color: var(--text); font-weight: 600; }
+.auth-switch button:hover { text-decoration: underline; }
+.card-row { display: flex; gap: 10px; } .card-row .field { flex: 1; }
+
+/* ============ Home / catalog ============ */
+.hero {
+  position: relative; border-radius: 0 0 24px 24px; overflow: hidden; min-height: 480px;
+  display: flex; align-items: flex-end;
+}
+.hero-bg { position: absolute; inset: 0; background-size: cover; background-position: center 20%; }
+.hero-bg::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(20,20,20,.15) 0%, rgba(20,20,20,.25) 45%, rgba(20,20,20,.62) 78%, var(--bg) 100%),
+              linear-gradient(270deg, rgba(20,20,20,.95) 0%, transparent 45%, transparent 100%);
+}
+.hero-body { position: relative; z-index: 2; padding: 46px 28px 96px; max-width: 620px; }
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 6px; background: rgba(229,9,20,.9); color: #fff;
+  font-size: 12px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
+}
+.hero-title { font-size: 52px; font-weight: 800; line-height: 1.02; letter-spacing: -1px; margin-bottom: 12px; }
+.hero-meta { display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-size: 14px; margin-bottom: 14px; }
+.hero-meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--text-muted); }
+.hero-meta .rating-badge {
+  border: 1px solid var(--text-dim); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-weight: 600;
+}
+.hero-desc { color: var(--text-dim); font-size: 15px; line-height: 1.55; margin-bottom: 22px; max-width: 520px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.hero-actions .btn { font-size: 16px; padding: 13px 28px; }
+
+.section { padding: 34px 28px 8px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.section-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+.genre-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.genre-tabs::-webkit-scrollbar { display: none; }
+.genre-tab {
+  flex: 0 0 auto; padding: 7px 16px; border-radius: 999px; background: var(--bg-elev);
+  border: 1px solid var(--border); font-size: 13px; color: var(--text-dim); font-weight: 500;
+  transition: all .15s;
+}
+.genre-tab:hover { color: var(--text); border-color: #555; }
+.genre-tab.active { background: #fff; color: #000; border-color: #fff; font-weight: 600; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 18px; }
+.video-card { border-radius: var(--radius); overflow: hidden; cursor: pointer; position: relative;
+  transition: transform .18s ease; background: var(--bg-card); }
+.video-card:hover { transform: translateY(-3px); }
+.video-thumb { position: relative; aspect-ratio: 16/10; background: var(--bg-elev); overflow: hidden; }
+.video-thumb img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s; }
+.video-card:hover .video-thumb img { transform: scale(1.04); }
+.video-thumb .badge-tag {
+  position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.72); color: #fff;
+  font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 6px; backdrop-filter: blur(4px);
+}
+.video-thumb .owned-tag {
+  position: absolute; top: 8px; right: 8px; background: var(--success); color: #06280f;
+  font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+}
+.video-thumb .duration { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,.78);
+  font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+.video-info { padding: 12px; }
+.video-info .title { font-size: 15px; font-weight: 600; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.video-info .meta { font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; }
+.video-info .price { color: var(--text); font-weight: 600; }
+.empty {
+  grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 60px 20px; font-size: 15px;
+}
+.spinner {
+  width: 34px; height: 34px; border: 3px solid var(--border); border-top-color: var(--brand);
+  border-radius: 50%; animation: spin .8s linear infinite; margin: 60px auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============ Video detail ============ */
+.detail-hero { position: relative; min-height: 420px; display: flex; align-items: flex-end; overflow: hidden; border-radius: 0 0 20px 20px; }
+.detail-backdrop { position: absolute; inset: 0; background-size: cover; background-position: center 20%; }
+.detail-backdrop::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, rgba(20,20,20,.1), rgba(20,20,20,.55) 60%, var(--bg) 100%); }
+.detail-body {
+  position: relative; z-index: 2; width: 100%; padding: 30px 40px 92px; display: flex; gap: 28px; align-items: flex-end;
+}
+.detail-main { flex: 1 1 auto; min-width: 0; }
+.detail-title { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1.05; margin-bottom: 10px; }
+.detail-actions { display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap; }
+.detail-price { color: var(--text-muted); font-size: 13px; margin-top: 10px; }
+.detail-back { position: absolute; top: 18px; left: 20px; z-index: 3; }
+.icon-btn {
+  width: 40px; height: 40px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; display: grid;
+  place-items: center; backdrop-filter: blur(6px); transition: background .15s;
+}
+.icon-btn:hover { background: rgba(0,0,0,.75); }
+.icon-btn svg { width: 20px; height: 20px; }
+
+.detail-content { max-width: 1180px; margin: 0 auto; padding: 28px; display: grid; grid-template-columns: minmax(0,1fr) 360px; gap: 34px; }
+.detail-desc { color: var(--text-dim); font-size: 15px; line-height: 1.7; }
+.detail-desc p { margin-bottom: 14px; }
+.detail-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; margin-top: 24px; }
+.fact .k { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 3px; }
+.fact .v { font-size: 14px; font-weight: 500; }
+
+.purchase-card { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 16px; padding: 22px; align-self: start; position: sticky; top: calc(var(--header-h) + 20px); }
+.purchase-card h3 { font-size: 17px; margin-bottom: 4px; }
+.purchase-card .sub { color: var(--text-muted); font-size: 13px; margin-bottom: 18px; }
+.purchase-options { display: flex; gap: 10px; margin-bottom: 18px; }
+.purchase-opt {
+  flex: 1; text-align: left; padding: 12px 14px; border-radius: 10px; background: var(--bg);
+  border: 2px solid var(--border); transition: border-color .15s; position: relative;
+}
+.purchase-opt span { text-align: center; }
+.purchase-opt .po-title { font-size: 13px; font-weight: 700; color: var(--text); display: block; }
+.purchase-opt .po-price { font-size: 12px; color: var(--text-muted); display: block; margin-top: 2px; }
+.purchase-opt.selected { border-color: var(--brand); }
+.purchase-opt.selected .po-price { color: var(--text); }
+.purchase-opt.selected::after { content: "✓"; position: absolute; top: 8px; right: 10px; color: var(--brand); font-weight: 800; }
+.purchase-note { background: rgba(70,211,105,.1); border: 1px solid rgba(70,211,105,.3); color: #8fe8b0;
+  font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 16px; }
+.purchase-note.warn { background: rgba(255,215,0,.08); border-color: rgba(255,215,0,.35); color: #ffe89a; }
+.access-state { padding: 14px; border-radius: 10px; margin-bottom: 14px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+.access-state.owned { background: rgba(70,211,105,.12); border: 1px solid rgba(70,211,105,.35); color: #8fe8b0; }
+.access-state.expired { background: rgba(255,59,48,.1); border: 1px solid rgba(255,59,48,.35); color: #ff8a84; }
+
+/* ============ Modal / Payment sheet ============ */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); backdrop-filter: blur(3px); z-index: 100;
+  display: flex; align-items: flex-end; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .2s;
+}
+.modal-backdrop.show { opacity: 1; pointer-events: auto; }
+.sheet {
+  width: 100%; max-width: 420px; background: var(--bg-elev); border-radius: 16px 16px 0 0; padding: 22px;
+  transform: translateY(100%); transition: transform .25s cubic-bezier(.2,.8,.2,1);
+}
+.modal-backdrop.show .sheet { transform: translateY(0); }
+.sheet-grabber { width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 0 auto 16px; }
+.sheet h3 { font-size: 18px; margin-bottom: 2px; }
+.sheet .sheet-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 18px; }
+.sheet-row { display: flex; justify-content: space-between; padding: 10px 0; font-size: 14px; }
+.sheet-row .k { color: var(--text-muted); }
+.sheet-row.total { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 14px; font-weight: 700; font-size: 16px; }
+.pm-card { display: flex; align-items: center; gap: 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; }
+.pm-card svg { width: 30px; height: 30px; }
+.pm-card .pm-label { font-size: 14px; font-weight: 600; }
+.pm-card .pm-note { font-size: 12px; color: var(--text-muted); }
+.pm-card .check { margin-left: auto; color: var(--success); font-weight: 800; }
+.sheet .terms { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 14px; line-height: 1.6; }
+.processing { text-align: center; padding: 26px 0; }
+.processing .msg { margin-top: 14px; color: var(--text-dim); font-size: 14px; }
+.processing .sub { color: var(--text-muted); font-size: 12px; margin-top: 4px; }
+
+/* ============ Player ============ */
+.player-screen { position: fixed; inset: 0; z-index: 200; background: #000; }
+.player-screen video { width: 100%; height: 100%; object-fit: contain; }
+.player-bar { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; background: linear-gradient(180deg, rgba(0,0,0,.7), transparent); }
+.player-bar button { color: #fff; }
+.rental-timer { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.75);
+  color: var(--gold); font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 999px; display: flex; align-items: center; gap: 8px; }
+.rental-timer .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* ============ Profile ============ */
+.profile-head { max-width: 1180px; margin: 0 auto; padding: 26px 28px 4px; display: flex; align-items: center; gap: 20px; }
+.profile-avatar { width: 74px; height: 74px; border-radius: 50%; background: var(--brand); display: grid; place-items: center; font-size: 30px; font-weight: 800; }
+.profile-info h1 { font-size: 24px; font-weight: 700; }
+.profile-info .sub { color: var(--text-muted); font-size: 14px; }
+
+/* ============ Toast ============ */
+.toast-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 300; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.toast { background: var(--bg-elev); border: 1px solid var(--border); color: var(--text); padding: 12px 20px;
+  border-radius: 10px; font-size: 14px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 10px;
+  animation: slideUp .25s ease; max-width: 90vw; }
+.toast.ok { border-color: rgba(70,211,105,.5); }
+.toast.ok::before { content: "✓"; color: var(--success); font-weight: 800; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px); } }
+
+/* ============ Responsive ============ */
+@media (max-width: 900px) {
+  .detail-content { grid-template-columns: 1fr; }
+  .purchase-card { position: static; }
+  .hero-title { font-size: 38px; }
+  .detail-title { font-size: 32px; }
+  .detail-body { padding: 30px 20px 80px; flex-direction: column; align-items: flex-start; gap: 16px; }
+  nav .nav-link { display: none; }
+  .search-box { min-width: 0; flex: 1; }
+}
+@media (max-width: 520px) {
+  header { padding: 0 16px; }
+  .hero-title { font-size: 32px; }
+  .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .section { padding: 28px 16px 8px; }
+  .detail-content { padding: 20px 16px; }
+}
+</style>
+</head>
+<body>
+<!-- ===== AUTH ===== -->
+<div class="auth-screen active" id="authScreen">
+  <div class="bg"></div>
+  <div class="auth-card">
+    <div class="brand-row">
+      <span class="logo" style="font-size:26px">Stream<span class="z">z</span></span>
+    </div>
+    <h1 id="authTitle">Sign in</h1>
+    <p class="tagline" id="authTagline">Pay-per-view movies. Stream instantly on any device.</p>
+    <div class="auth-error" id="authError"></div>
+    <form id="authForm" novalidate>
+      <div class="field hidden" id="nameField">
+        <label for="name">Full name</label>
+        <input id="name" type="text" autocomplete="name" placeholder="Ada Lovelace" />
+        <div class="err" id="nameErr"></div>
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="email" placeholder="you@example.com" />
+        <div class="err" id="emailErr"></div>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" />
+        <div class="err" id="passwordErr"></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="authSubmit">Sign in</button>
+    </form>
+    <div class="auth-switch" id="authSwitch"></div>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div class="app hidden" id="app">
+  <header id="header">
+    <a class="logo" href="#" data-nav="home">Stream<span class="z">z</span></a>
+    <nav>
+      <a class="nav-link" data-nav="home">Home</a>
+      <a class="nav-link" data-nav="profile">My Library</a>
+    </nav>
+    <div class="nav-search">
+      <div class="search-box">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+        <input id="searchInput" type="text" placeholder="Search titles, genres…" />
+      </div>
+    </div>
+    <div class="nav-actions">
+      <div class="avatar" id="avatar" title="My profile"></div>
+    </div>
+  </header>
+
+  <div class="stage">
+    <!-- HOME -->
+    <div id="homeScreen">
+      <div class="hero" id="hero"><div class="hero-bg"></div><div class="hero-body"></div></div>
+      <div class="section">
+        <div class="section-head"><h2 id="catalogTitle">Browse</h2></div>
+        <div class="genre-tabs" id="genreTabs"></div>
+      </div>
+      <div class="section">
+        <div class="grid" id="videoGrid"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- DETAIL -->
+    <div id="detailScreen" class="hidden"></div>
+
+    <!-- PROFILE -->
+    <div id="profileScreen" class="hidden">
+      <div class="profile-head">
+        <div class="profile-avatar" id="profileAvatar"></div>
+        <div class="profile-info">
+          <h1 id="profileName"></h1>
+          <div class="sub" id="profileEmail"></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-head"><h2>My Purchases</h2></div>
+        <div class="grid" id="purchaseGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PAYMENT SHEET ===== -->
+<div class="modal-backdrop" id="sheetBackdrop">
+  <div class="sheet">
+    <div class="sheet-grabber"></div>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
+<!-- ===== PLAYER ===== -->
+<div class="player-screen hidden" id="playerScreen">
+  <div class="player-bar">
+    <button class="icon-btn" id="playerClose"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    <div class="rental-timer hidden" id="rentalTimer"><span class="dot"></span><span id="rentalTimerText"></span></div>
+    <div style="width:40px"></div>
+  </div>
+  <video id="player" controls autoplay playsinline></video>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+/* =====================================================================
+ * Streamz — interactive HTML prototype
+ * Faithful to the real API contracts (backend/shared, api-gateway):
+ *   POST /api/auth/register|login  → DTO {id,email,name,stripeCustomerId,createdAt}
+ *   GET  /api/videos               → VideoDTO[] (+ featured, purchased)
+ *   POST /api/purchases/create-payment-intent {videoId,type} (buy|rent)
+ *   GET  /api/purchases/check/:videoId → {hasAccess,type,expiresAt}
+ *   GET  /api/purchases            → purchase history
+ *   GET  /api/stream/upload-url / playback / thumbnail
+ * Uses Mux test-stream playback IDs so playback actually works in the browser.
+ * ===================================================================== */
+
+/* ---- Config: flip to point at a live backend ---- */
+const API = { enabled: false, baseURL: "http://localhost:3000" }
+
+const VIDEO_DTO_KEYS = ["id","title","description","thumbnailUrl","playbackId","durationSeconds",
+  "priceCents","rentalPriceCents","rentalDurationHours","genre","releaseYear","rating",
+  "featured","purchaseType","purchased","createdAt"]
+
+/* ---- Mux public test streams (real HLS, playable) ---- */
+const TEST_PLAYBACK = {
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0001": "VWT7gdRt6mCky5RZBEnT7qGTaS01X98nuWV4OZBZRL600mRY", /* big buck bunny */
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0002": "qxb01i6T202018GFS02vp9RIe01icTcDCjVzQpmaB00CUYJ102", /* synthwave */
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0003": "IInuQm45P2001hMbQG7hGPYDqzSpMZ00YIZUFRuTVfn400", /* traffic */
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0004": "yHDx6p9LcV1p5t027029KOlRV9DRjK8jKYO00k9dZMu1A01TA", /* eagles */
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0005": "r8M5L10Tgv02kP00Jjf8ZC5503eCIhund82dGL1q8ZTF9c",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0006": "lQ01vKO02qOe6GqcU01Z01GH01maymNnfVZLVU02O0200vsRU7g",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0007": "H6YIxbMw02u2Cw9EQcFYvbp02gWq9j2jIH5v5002slL02cGg",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0008": "022s02iV01WyMTN1wQWbc3yWvV4pvN01zHFBW7W99FI5Yds",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f0009": "2F1ZQC02GQC02AULFfFLf019bK1vcuP1Y5AQfGcL6d6lHk",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f000a": "xtj01y1jOjHSg01zNy2foIO02RxhZ4tuZkCJnJ00BeHXUXI0",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f000b": "56umw8h8hNn7Q9sKrCLdYekQm61FncRkCj02DxeDqGXYxbg",
+  "339e91f5-3a7d-4f6e-9a0f-8ca28b2f000c": "9jHh02ROOCoGA85iKjM3Sg0201kdfoQOuo6eZMp00VxOoQg",
+}
+const thumbnail = id => id ? `https://image.mux.com/${id}/thumbnail.jpg?time=2&width=480` : ""
+const HLS_URL = id => `https://stream.mux.com/${id}.m3u8`
+
+/* ---- Seed catalog (mirrors video_service.videos shape) ---- */
+const CATALOG = [
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0001", title:"Ascension Protocol", genre:"Sci-Fi", releaseYear:2026, rating:"PG-13", durationSeconds:7320, priceCents:1599, rentalPriceCents:499, rentalDurationHours:48, purchaseType:"both", featured:true, description:"A data courier discovers her latest payload is a sentient AI that rewrites its own ethics as it runs. Hunted by the corporation that built it, she must decide whether to upload it — or pull the plug." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0002", title:"Neon Tide", genre:"Thriller", releaseYear:2025, rating:"R", durationSeconds:6540, priceCents:1299, rentalPriceCents:399, rentalDurationHours:48, purchaseType:"both", featured:false, description:"A washed-up detective follows a string of dead surfers into a crime ring laundering money through a coastal wellness cult. The deeper he digs, the more the tide pulls him under." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0003", title:"Static", genre:"Horror", releaseYear:2025, rating:"R", durationSeconds:5760, priceCents:1199, rentalPriceCents:349, rentalDurationHours:48, purchaseType:"rent", featured:false, description:"Every screen in an isolated town starts broadcasting the same broadcast: tonight, at midnight, someone is coming home. Nobody answers the knock." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0004", title:"The Long Mile", genre:"Drama", releaseYear:2024, rating:"PG", durationSeconds:8280, priceCents:999, rentalPriceCents:299, rentalDurationHours:72, purchaseType:"both", featured:false, description:"A marathoner chasing an Olympic berth hits a wall at mile 18 — a fragmenting knee and a scandal that ends her career. Two decades later, a torn journal forces her to decide how much of the story was true." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0005", title:"Second Sunrise", genre:"Romance", releaseYear:2024, rating:"PG-13", durationSeconds:7440, priceCents:899, rentalPriceCents:249, rentalDurationHours:48, purchaseType:"both", featured:false, description:"A physicist mourning her partner builds a time window that only shows the same sunrise again and again. Then one morning, it shows a different one." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0006", title:"Kill Switch", genre:"Action", releaseYear:2026, rating:"R", durationSeconds:5880, priceCents:1799, rentalPriceCents:499, rentalDurationHours:48, purchaseType:"both", featured:true, description:"A retired spec-ops courier is forced out of hiding when an old override code starts killing federal assets one by one. The only person who can stop it is the person who wrote it: her." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0007", title:"Glass Horizon", genre:"Mystery", releaseYear:2025, rating:"PG-13", durationSeconds:6900, priceCents:1399, rentalPriceCents:399, rentalDurationHours:48, purchaseType:"buy", featured:false, description:"A forensics architect is hired to rebuild the view from a skyscraper that never existed — and begins to see, in the glass, the city that would have been." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0008", title:"Iron & Ash", genre:"Drama", releaseYear:2024, rating:"R", durationSeconds:8100, priceCents:1099, rentalPriceCents:329, rentalDurationHours:72, purchaseType:"both", featured:false, description:"Two families split by a steel-mill closing empty the same town's only diner over one long night, forcing everything left unsaid into the open." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f0009", title:"Deep Field", genre:"Sci-Fi", releaseYear:2025, rating:"PG-13", durationSeconds:7620, priceCents:1599, rentalPriceCents:499, rentalDurationHours:48, purchaseType:"both", featured:false, description:"The last crew of a deep-space telescope station waits for a signal they know will never come — until it does, scrawled in their own handwriting." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f000a", title:"Afterimage", genre:"Thriller", releaseYear:2026, rating:"R", durationSeconds:6060, priceCents:1499, rentalPriceCents:449, rentalDurationHours:48, purchaseType:"both", featured:false, description:"A forensic photographer realizes her best pictures don't record what happened — they predict what's about to. The next one is her own." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f000b", title:"Small Hours", genre:"Comedy", releaseYear:2024, rating:"PG", durationSeconds:5520, priceCents:799, rentalPriceCents:199, rentalDurationHours:48, purchaseType:"both", featured:false, description:"Three night-shift nurses and a stranded food-truck cook decide to start a radio show nobody asked for — and accidentally save their whole town." },
+  { id:"339e91f5-3a7d-4f6e-9a0f-8ca28b2f000c", title:"Redline", genre:"Action", releaseYear:2025, rating:"R", durationSeconds:6300, priceCents:1499, rentalPriceCents:449, rentalDurationHours:48, purchaseType:"both", featured:false, description:"A getaway driver takes one last job: ten blocks, nine minutes, no weapons. Everything in the city is out to make both impossible." },
+].map(v => ({ ...v, thumbnailUrl: thumbnail(TEST_PLAYBACK[v.id]) }))
+
+/* ---- State ---- */
+const DB_KEY = "streamz-prototype-db"
+let db = { users: {}, session: null }
+function loadDB() { try { db = JSON.parse(localStorage.getItem(DB_KEY)) || { users:{}, session:null } } catch { db = { users:{}, session:null } } }
+function saveDB() { localStorage.setItem(DB_KEY, JSON.stringify(db)) }
+
+/* ---- helpers ---- */
+const $ = s => document.querySelector(s)
+const $$ = s => Array.from(document.querySelectorAll(s))
+const fmt = cents => (cents/100).toLocaleString("en-US", { style:"currency", currency:"USD" })
+const fmtDur = s => { const h=Math.floor(s/3600), m=Math.floor((s%3600)/60); return h? `${h}h ${m}m` : `${m}m` }
+const sortById = list => list.sort((a,b) => a.id.localeCompare(b.id))
+const escape = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]))
+
+function toast(msg, ok=false) { const t=document.createElement("div"); t.className=`toast${ok?" ok":""}`; t.textContent=msg; $("#toastWrap").appendChild(t); setTimeout(()=>{t.style.opacity=0; t.style.transition="opacity .3s"; setTimeout(()=>t.remove(),300)}, ok?2200:3200) }
+
+function videoLicense(videoId) {
+  const cur = db.session ? db.users[db.session.userId] : null
+  if (!cur) return null
+  return cur.purchases?.find(p => p.videoId===videoId && p.status==="completed") || null
+}
+function hasAccess(license) {
+  if (!license) return false
+  if (license.type==="buy") return true
+  return license.expiresAt && new Date(license.expiresAt) > new Date()
+}
+function accessSummary(license) {
+  if (!license) return { owned:false }
+  if (license.type==="buy") return { owned:true }
+  const diff = new Date(license.expiresAt) - new Date()
+  if (diff<=0) return { owned:false, expired:true }
+  return { owned:true, rental:true, ms:diff, label: fmtDur(Math.round(diff/1000)) }
+}
+
+/* =====================================================================
+ * AUTH (mirrors auth_service: register → login → /api/auth/me)
+ * ===================================================================== */
+const AUTH = {
+  register(name, email, password) {
+    const emailErr = !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "Enter a valid email address." : ""
+    const passErr = password.length<8 ? "Password must be at least 8 characters." : ""
+    const nameErr = name.trim().length<1 ? "Enter your name." : ""
+    let sysErr = ""
+    if (!emailErr && !passErr && !nameErr) {
+      const exists = Object.keys(db.users).some(id => db.users[id].email.toLowerCase()===email.toLowerCase())
+      if (exists) sysErr = "An account with this email already exists."
+    }
+    return { ok: !emailErr&&!passErr&&!nameErr&&!sysErr, errs:{emailErr,passErr,nameErr,sysErr} }
+  },
+  login(email, password) {
+    const user = Object.values(db.users).find(u => u.email.toLowerCase()===email.toLowerCase())
+    if (!user) return { ok:false, msg:"No account found with that email." }
+    if (user.password!==password) return { ok:false, msg:"Incorrect password. Try again." }
+    return { ok:true, user }
+  },
+  createSession(user) {
+    const tokens = { access: "mock_"+Math.random().toString(36).slice(2), refresh: "mock_r_"+Math.random().toString(36).slice(2) }
+    db.session = { userId: user.id, ...tokens }
+    saveDB()
+  },
+}
+
+/* =====================================================================
+ * PURCHASES (mirrors purchase_service: create-payment-intent → webhook → check)
+ * ===================================================================== */
+const PURCHASE = {
+  /* Stripe-simulated payment that completes a purchase idempotently */
+  complete(video, type) {
+    const cur = db.users[db.session.userId]
+    const existing = videoLicense(video.id)
+    if (existing && hasAccess(existing)) {
+      return { ok:false, msg:`You already have access to this ${existing.type==="buy"?"purchase":"rental"} — nothing to charge.`, already:true }
+    }
+    const isRent = type==="rent"
+    const amount = isRent ? (video.rentalPriceCents ?? video.priceCents) : video.priceCents
+    const now = Date.now()
+    const license = {
+      id: crypto.randomUUID?.() || "pur_"+Math.random().toString(36).slice(2),
+      userId: db.session.userId,
+      videoId: video.id,
+      type,  /* 'buy' | 'rent' */
+      amountCents: amount,
+      status: "completed",
+      expiresAt: isRent ? new Date(now + (video.rentalDurationHours||48)*3600000).toISOString() : null,
+      createdAt: new Date(now).toISOString(),
+    }
+    cur.purchases = cur.purchases || []
+    cur.purchases.push(license)
+    saveDB()
+    return { ok:true, license }
+  },
+  violation(type, video) {
+    /* Enforce purchase_type: 'buy','rent','both' (same rule as backend) */
+    const allowed = video.purchaseType
+    if (allowed!=="both" && allowed!==type) {
+      const label = allowed==="buy" ? "purchase (own forever)" : "rental (48-hour access)"
+      return { ok:false, msg:`This title is only available as a ${label}.`, violation:true }
+    }
+    return { ok:true }
+  },
+}
+
+/* =====================================================================
+ * RENDER
+ * ===================================================================== */
+const views = { auth:"authScreen", home:"homeScreen", detail:"detailScreen", profile:"profileScreen" }
+function showView(name) {
+  Object.values(views).forEach(id => { const el=document.getElementById(id); el.classList.toggle("hidden", id !== views[name] && id !== "app") })
+  $("#authScreen").classList.toggle("active", name==="auth")
+  $("#app").classList.toggle("hidden", name==="auth")
+  if (name==="home") renderHome()
+  if (name==="profile") renderProfile()
+  window.scrollTo(0,0)
+}
+
+function renderHome(genre="all", search="") {
+  const featured = CATALOG.find(v=>v.featured) || CATALOG[0]
+  const hero = $("#hero")
+  hero.querySelector(".hero-bg").style.backgroundImage = `url('${featured.thumbnailUrl}')`
+  const meta = []
+  meta.push(`<span>${featured.releaseYear}</span>`)
+  meta.push(`<span class="rating-badge">${featured.rating}</span>`)
+  meta.push(`<span>${fmtDur(featured.durationSeconds)}</span>`)
+  hero.querySelector(".hero-body").innerHTML = `
+    <div class="hero-badge">Featured Originals</div>
+    <h1 class="hero-title">${escape(featured.title)}</h1>
+    <div class="hero-meta">${meta.join('<span class="dot"></span>')}</div>
+    <p class="hero-desc">${escape(featured.description)}</p>
+    <div class="hero-actions">
+      <button class="btn btn-primary" onclick="openDetail('${featured.id}')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Watch
+      </button>
+    </div>`
+
+  const genres = ["all", ...Array.from(new Set(CATALOG.map(v=>v.genre)))]
+  $("#genreTabs").innerHTML = genres.map(g=>`<button class="genre-tab${g===genre?" active":""}" onclick="setGenre('${g}')">${g==="all"?"All Genres":g}</button>`).join("")
+
+  let list = CATALOG
+  if (genre!=="all") list = list.filter(v=>v.genre===genre)
+  if (search) { const q=search.toLowerCase(); list = list.filter(v=>v.title.toLowerCase().includes(q)||v.genre.toLowerCase().includes(q)||v.description.toLowerCase().includes(q)) }
+  $("#catalogTitle").textContent = search? `Results for "${search}"` : (genre==="all"?"Browse":genre)
+
+  if (list.length===0) { $("#videoGrid").innerHTML=`<div class="empty">No titles found${search?` for “${escape(search)}”`:""}. Try a different search.</div>`; return }
+  $("#videoGrid").innerHTML = sortById(list).map(v=>{
+    const lic = videoLicense(v.id)
+    const acc = accessSummary(lic)
+    const owned = acc.owned
+    return `<div class="video-card" onclick="openDetail('${v.id}')">
+      <div class="video-thumb">
+        <img src="${v.thumbnailUrl}" alt="${escape(v.title)}" loading="lazy" onerror="this.style.display='none'"/>
+        <span class="badge-tag">${escape(v.genre)}</span>
+        ${owned?'<span class="owned-tag" title="You have access">OWNED</span>':(v.purchaseType==="rent"?"":"")}
+        <span class="duration">${fmtDur(v.durationSeconds)}</span>
+      </div>
+      <div class="video-info">
+        <div class="title">${escape(v.title)}</div>
+        <div class="meta"><span>${v.releaseYear}</span><span class="price">${fmt((v.rentalPriceCents??v.priceCents)/1)}</span></div>
+      </div>
+    </div>`
+  }).join("")
+}
+
+function setGenre(g){ state.genre=g; renderHome(g, $("#searchInput").value) }
+
+/* ---- Detail ---- */
+function openDetail(id){
+  const v = CATALOG.find(v=>v.id===id); if(!v) return
+  state.view="detail"
+  $("#homeScreen").classList.add("hidden")
+  $("#detailScreen").classList.remove("hidden")
+  renderDetail(v)
+  window.scrollTo(0,0)
+}
+function renderDetail(v){
+  const acc = accessSummary(videoLicense(v.id))
+  const el = $("#detailScreen")
+  el.innerHTML = `
+    <div class="detail-hero">
+      <div class="detail-backdrop" style="background-image:url('${v.thumbnailUrl}')"></div>
+      <button class="icon-btn detail-back" onclick="showView('home')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></button>
+      <div class="detail-body">
+        <div class="detail-main">
+          <h1 class="detail-title">${escape(v.title)}</h1>
+          <div class="hero-meta">
+            <span>${v.releaseYear}</span><span class="dot"></span>
+            <span class="rating-badge">${escape(v.rating)}</span><span class="dot"></span>
+            <span>${escape(v.genre)}</span><span class="dot"></span>
+            <span>${fmtDur(v.durationSeconds)}</span>
+          </div>
+          <div class="detail-actions" id="detailActions"></div>
+          <div class="detail-price" id="detailPriceLine"></div>
+        </div>
+      </div>
+    </div>
+    <div class="detail-content">
+      <div>
+        <div class="detail-desc"><p>${escape(v.description)}</p></div>
+        <div class="detail-facts">
+          <div class="fact"><div class="k">Genre</div><div class="v">${escape(v.genre)}</div></div>
+          <div class="fact"><div class="k">Maturity</div><div class="v">${escape(v.rating)}</div></div>
+          <div class="fact"><div class="k">Released</div><div class="v">${v.releaseYear}</div></div>
+          <div class="fact"><div class="k">Runtime</div><div class="v">${fmtDur(v.durationSeconds)}</div></div>
+        </div>
+      </div>
+      <div class="purchase-card">
+        <h3>${acc.owned ? "You have access":"Get access"}</h3>
+        <p class="sub">${acc.rental? `Rental expires in ${acc.label}.` : (acc.expired?"Your rental expired.":"Choose how you want to watch.")}</p>
+        ${acc.owned && !acc.expired ? `<div class="access-state owned">✓ You ${acc.rental?"rented":"own"} this title${acc.rental?` — time left ${acc.label}`:""}</div>` : ""}
+        ${acc.expired? `<div class="access-state expired">Your rental has expired. Rent again below.</div>` : ""}
+        <div id="purchaseOptions"></div>
+        <div class="purchase-note hidden" id="purchaseNote"></div>
+        <button class="btn btn-primary btn-block" id="purchaseCta"></button>
+      </div>
+    </div>`
+  renderDetailDyn(v)
+}
+function renderDetailDyn(v){
+  const acc = accessSummary(videoLicense(v.id))
+  const owned = acc.owned && !acc.expired
+  const actions = $("#detailActions")
+  const cta = $("#purchaseCta")
+
+  /* CTA: play if owned, else buy/rent */
+  if (owned){
+    cta.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Play now`
+    cta.onclick = ()=>openPlayer(v)
+    $("#detailPriceLine").textContent = acc.rental ? `Rental · ends ${new Date(videoLicense(v.id).expiresAt).toLocaleDateString()}` : "You own this title — watch anytime."
+    $("#purchaseOptions").innerHTML = ""
+    $("#purchaseNote").classList.add("hidden")
+    return
+  }
+
+  /* Not owned: show buy/rent options + CTA*/
+  const opts = []
+  const canBuy = v.purchaseType!=="rent"
+  const canRent = v.purchaseType!=="buy"
+  if (canBuy) opts.push({type:"buy", title:"Buy", sub:fmt(v.priceCents)})
+  if (canRent) opts.push({type:"rent", title:`Rent (${v.rentalDurationHours||48}h)`, sub:fmt(v.rentalPriceCents ?? v.priceCents)})
+  state.selectedType = canRent && !canBuy ? "rent" : "buy"
+  $("#purchaseOptions").innerHTML = opts.map(o=>`
+    <div class="purchase-opt${o.type===state.selectedType?" selected":""}" onclick="selectType('${o.type}', '${v.id}')">
+      <span><span class="po-title">${o.title}</span><span class="po-price">${o.sub}</span></span>
+    </div>`).join("")
+  const sel = opts.find(o=>o.type===state.selectedType)
+  cta.innerHTML = `${sel.type==="rent"?"Rent":"Buy"} · ${sel.sub}`
+  cta.onclick = ()=>startPurchase(v, sel.type)
+  $("#detailPriceLine").textContent = sel.type==="rent"
+    ? `Rental access for ${v.rentalDurationHours||48} hours · HD quality`
+    : "Watch anytime, on any device · owned forever"
+  $("#purchaseNote").classList.add("hidden")
+}
+function selectType(t,id){ state.selectedType=t; renderDetailDyn(CATALOG.find(v=>v.id===id)) }
+
+/* ---- Payment ---- */
+function startPurchase(v, type){
+  /* backend rule: reject buy-on-rent-only (validation is server-side in real app) */
+  const viol = PURCHASE.violation(type, v)
+  const note = $("#purchaseNote")
+  if (!viol.ok){ note.textContent=viol.msg; note.classList.remove("hidden"); return }
+  note.classList.add("hidden")
+  openSheet(v, type)
+}
+function openSheet(v, type){
+  const isRent = type==="rent"
+  const amount = isRent ? (v.rentalPriceCents ?? v.priceCents) : v.priceCents
+  const fee = Math.round(amount*0.029)+30
+  $("#sheetBody").innerHTML = `
+    <div class="sheet-grabber"></div>
+    <h3>${isRent?"Rent":"Buy"} ${escape(v.title)}</h3>
+    <p class="sheet-sub">Secure checkout · powered by Streamz</p>
+    <div class="sheet-row"><span class="k">${isRent?`Rental (${v.rentalDurationHours||48} hr)`: "Own forever"}</span><span>${fmt(amount)}</span></div>
+    <div class="sheet-row"><span class="k">Processing fee</span><span>${fmt(fee)}</span></div>
+    <div class="sheet-row total"><span class="k">Total</span><span>${fmt(amount+fee)}</span></div>
+    <div style="height:16px"></div>
+    <div class="pm-card">
+      <svg viewBox="0 0 48 32" width="34" height="34"><rect x="1" y="5" width="46" height="22" rx="5" fill="#1a1a2e"/><rect x="1" y="16" width="46" height="11" rx="5" fill="#e50914" opacity=".9"/></svg>
+      <div><div class="pm-label">Card ending 4242</div><div class="pm-note">Simulated test payment — no real charge</div></div>
+      <span class="check">✓</span>
+    </div>
+    <button class="btn btn-primary btn-block" id="payBtn">${isRent?"Rent now":"Buy now"} · ${fmt(amount+fee)}</button>
+    <div class="terms">Payment secured by Stripe. This is a prototype — no real card is charged and no real money moves.</div>
+  `
+  $("#sheetBackdrop").classList.add("show")
+  $("#payBtn").onclick = ()=>processPayment(v, type)
+}
+function processPayment(v, type){
+  $("#sheetBody").innerHTML = `
+    <div class="sheet-grabber"></div>
+    <div class="processing">
+      <div class="spinner" style="margin:10px auto"></div>
+      <div class="msg">Processing ${type==="rent"?"rental":"payment"}…</div>
+      <div class="sub">Confirming with Stripe (simulated)</div>
+    </div>`
+  setTimeout(()=>{
+    const res = PURCHASE.complete(v, type)
+    closeSheet()
+    if (!res.ok){ toast(res.msg, false); return }
+    toast(`You now ${type==="rent"?"have a 48-hour rental":"own"} “${v.title}”.`, true)
+    renderDetail(v)
+  }, 1400)
+}
+function closeSheet(){ $("#sheetBackdrop").classList.remove("show") }
+
+/* ---- Player ---- */
+function openPlayer(v){
+  const acc = accessSummary(videoLicense(v.id))
+  if (!acc.owned){
+    toast("You need to buy or rent this title first.", false)
+    openDetail(v.id); return
+  }
+  $("#player").src = HLS_URL(TEST_PLAYBACK[v.id])
+  $("#playerScreen").classList.remove("hidden")
+  const t = $("#rentalTimer"), txt = $("#rentalTimerText")
+  if (acc.rental){
+    t.classList.remove("hidden")
+    const end = new Date(videoLicense(v.id).expiresAt)
+    const tick = ()=>{ const d=end-Date.now(); if(d<=0){ t.classList.add("hidden"); clearInterval(iv); return } txt.textContent = fmtDur(Math.max(0,Math.round(d/1000))); }
+    tick(); const iv = setInterval(tick, 1000)
+  } else { t.classList.add("hidden") }
+}
+function closePlayer(){ $("#playerScreen").classList.add("hidden"); const p=$("#player"); p.pause(); p.removeAttribute("src"); p.load() }
+
+/* ---- Profile ---- */
+function renderProfile(){
+  const me = db.users[db.session.userId]
+  $("#profileAvatar").textContent = (me.name||"?").trim().charAt(0).toUpperCase()
+  $("#profileName").textContent = me.name
+  $("#profileEmail").textContent = me.email
+  const list = (me.purchases||[])
+    .filter(p=>p.status==="completed")
+    .map(p=>{ const v=CATALOG.find(c=>c.id===p.videoId); return {p,v} })
+    .filter(x=>x.v)
+    .sort((a,b)=>new Date(b.p.createdAt)-new Date(a.p.createdAt))
+  $("#purchaseGrid").innerHTML = list.length===0
+    ? `<div class="empty">Nothing here yet. Loves to start your library — browse titles and buy or rent your first one.</div>`
+    : list.map(({p,v})=>{
+        const acc = accessSummary({type:p.type, expiresAt:p.expiresAt})
+        const usable = acc.owned
+        return `<div class="video-card" onclick="openDetail('${v.id}')">
+          <div class="video-thumb">
+            <img src="${v.thumbnailUrl}" alt="" loading="lazy" onerror="this.style.display='none'"/>
+            <span class="badge-tag">${p.type==="buy"?"Bought":"Rental"}</span>
+            ${usable?'':''}
+            <span class="duration">${p.type==="buy"?"Forever":(acc.expired?"Expired":acc.label)}</span>
+          </div>
+          <div class="video-info">
+            <div class="title">${escape(v.title)}</div>
+            <div class="meta"><span>${p.type==="buy"?"Owned":"Rented"}</span><span>${fmt(p.amountCents)}</span></div>
+          </div>
+        </div>`
+      }).join("")
+  const ownedCount = list.filter(x=>accessSummary(x.p).owned).length
+  $("#profileEmail").textContent = `${me.email} · ${ownedCount} title${ownedCount===1?"":"s"} in library`
+}
+
+/* =====================================================================
+ * AUTH UI
+ * ===================================================================== */
+let authMode = "login"
+function renderAuth(){
+  const isLogin = authMode==="login"
+  $("#authTitle").textContent = isLogin?"Sign in":"Create your account"
+  $("#authTagline").textContent = isLogin?"Welcome back. Pick up where you left off.":"Pay-per-view movies. Stream instantly on any device."
+  $("#nameField").classList.toggle("hidden", isLogin)
+  $("#authSubmit").textContent = isLogin?"Sign in":"Create account"
+  $("#authSwitch").innerHTML = isLogin
+    ? `New to Streamz? <button onclick="setAuth('register')">Create an account</button>`
+    : `Already have an account? <button onclick="setAuth('login')">Sign in</button>`
+  $("#password").setAttribute("autocomplete", isLogin?"current-password":"new-password")
+  clearErrors()
+}
+function setAuth(m){ authMode=m; renderAuth() }
+function clearErrors(){ ["name","email","password"].forEach(id=>{ document.getElementById(id+"Err").textContent="" }); $("#authError").classList.remove("show") }
+
+function submitAuth(e){
+  e.preventDefault()
+  clearErrors()
+  const name=$("#name").value.trim(), email=$("#email").value.trim(), password=$("#password").value
+  let ok=true
+  if (authMode==="register"){
+    const r = AUTH.register(name,email,password)
+    if (r.errs.nameErr){ $("#nameErr").textContent=r.errs.nameErr; ok=false }
+    if (r.errs.emailErr){ $("#emailErr").textContent=r.errs.emailErr; ok=false }
+    if (r.errs.passErr){ $("#passwordErr").textContent=r.errs.passErr; ok=false }
+    if (r.errs.sysErr){ $("#authError").textContent=r.errs.sysErr; $("#authError").classList.add("show"); ok=false }
+    if (ok){
+      const id = crypto.randomUUID?.() || "u_"+Math.random().toString(36).slice(2)
+      db.users[id] = { id, name, email, password, purchases: [], createdAt:new Date().toISOString() }
+      AUTH.createSession(db.users[id])
+      enterApp()
+    }
+  } else {
+    const r = AUTH.login(email,password)
+    if (!r.ok){ $("#authError").textContent=r.msg; $("#authError").classList.add("show"); return }
+    AUTH.createSession(r.user)
+    enterApp()
+  }
+}
+
+function enterApp(){
+  renderAuth()
+  state.view="home"
+  showView("home")
+  updateAvatar()
+  toast(`Welcome back, ${db.users[db.session.userId].name.split(" ")[0]}!`, true)
+}
+function logout(){
+  db.session=null; saveDB()
+  showView("auth")
+}
+function updateAvatar(){
+  const me = db.session? db.users[db.session.userId]:null
+  const a=$("#avatar")
+  if (!me){ a.textContent="?"; a.dataset.name=""; return }
+  a.textContent = me.name.trim().charAt(0).toUpperCase()
+  a.dataset.name = me.name
+  a.onclick = ()=>{ if(db.session) showView("profile") }
+}
+
+const state = { view:"home", genre:"all", selectedType:"buy" }
+
+/* ---- wire events ---- */
+document.querySelectorAll("[data-nav]").forEach(el=>{
+  el.addEventListener("click", ()=>{ if(!db.session) return; showView(el.dataset.nav) })
+})
+$("#searchInput").addEventListener("input", e=>{
+  if (state.view!=="home") return
+  renderHome(state.genre, e.target.value)
+})
+$("#sheetBackdrop").addEventListener("click", e=>{ if(e.target.id==="sheetBackdrop") closeSheet() })
+$("#playerClose").addEventListener("click", closePlayer)
+$("#authForm").addEventListener("submit", submitAuth)
+
+/* autoplay HLS support */
+if (window.Hls) { window.Hls.isSupported && 0 }
+
+function boot(){
+  loadDB()
+  renderAuth()
+  if (db.session && db.users[db.session.userId]){
+    enterApp()
+  } else {
+    showView("auth")
+    updateAvatar()
+  }
+}
+boot()
+</script>
+</body>
+</html>
