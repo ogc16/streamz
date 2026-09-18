@@ -123,7 +123,7 @@ fun VideoDetailScreen(
                                 )
                             }
 
-                            if (uiState.isPurchased) {
+                            if (uiState.isPurchased && video.playbackId.isNotEmpty()) {
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.Center)
@@ -198,7 +198,7 @@ fun VideoDetailScreen(
 
                             Spacer(modifier = Modifier.height(24.dp))
 
-                            if (uiState.isPurchased) {
+                            if (uiState.isPurchased && video.playbackId.isNotEmpty()) {
                                 Button(
                                     onClick = { onPlayClick(video.playbackId) },
                                     modifier = Modifier
@@ -214,7 +214,7 @@ fun VideoDetailScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = if (uiState.purchaseType == "rental") "Watch Now (Rental)"
+                                        text = if (uiState.purchaseType == "rent") "Watch Now (Rental)"
                                         else "Watch Now",
                                         style = MaterialTheme.typography.labelLarge
                                     )
@@ -237,7 +237,7 @@ fun VideoDetailScreen(
                                 Spacer(modifier = Modifier.height(12.dp))
 
                                 OutlinedButton(
-                                    onClick = { onBuyClick("rental") },
+                                    onClick = { onBuyClick("rent") },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(52.dp),

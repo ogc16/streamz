@@ -36,6 +36,10 @@ data class RefreshResponse(
     val refreshToken: String
 )
 
+data class UserResponse(
+    val user: UserDto
+)
+
 data class MessageResponse(
     val message: String
 )

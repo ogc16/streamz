@@ -1,10 +1,13 @@
 import express from 'express'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { Redis } from 'ioredis'
 import { JWTPayload } from '@streamz/shared'
+
+dotenv.config()
 
 const app = express()
 const PORT = process.env.GATEWAY_PORT || 3000

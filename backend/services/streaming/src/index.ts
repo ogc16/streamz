@@ -1,10 +1,13 @@
 import express from 'express'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import Mux from '@mux/mux-node'
 import { Redis } from 'ioredis'
 import { JWTPayload } from '@streamz/shared'
+
+dotenv.config()
 
 const app = express()
 const PORT = process.env.STREAMING_SERVICE_PORT || 4004
@@ -176,7 +179,7 @@ app.get('/api/stream/playback/:playbackId', authMiddleware, async (req, res) => 
   }
 })
 
-app.post('/api/stream/thumbnail/:playbackId', async (req, res) => {
+app.post('/api/stream/thumbnail/:playbackId', authMiddleware, async (req, res) => {
   try {
     const { playbackId } = req.params
     const { time = 0 } = req.body

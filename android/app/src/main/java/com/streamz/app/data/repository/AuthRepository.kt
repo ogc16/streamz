@@ -39,7 +39,7 @@ class AuthRepository @Inject constructor(
     }
 
     suspend fun getCurrentUser(): User {
-        return api.getMe().toDomain()
+        return api.getMe().user.toDomain()
     }
 
     suspend fun restoreSession(): User? {

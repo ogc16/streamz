@@ -19,7 +19,7 @@ interface ApiService {
     suspend fun logout(): MessageResponse
 
     @GET("api/auth/me")
-    suspend fun getMe(): UserDto
+    suspend fun getMe(): UserResponse
 
     // Videos
     @GET("api/videos")

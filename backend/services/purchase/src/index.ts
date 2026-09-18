@@ -1,10 +1,13 @@
 import express from 'express'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
-import { JWTPayload, StripeMetadata, PurchaseDTO } from '@streamz/shared'
+import { JWTPayload, StripeMetadata, PurchaseDTO, paymentIntentSchema } from '@streamz/shared'
+
+dotenv.config()
 
 const app = express()
 const PORT = process.env.PURCHASE_SERVICE_PORT || 4003
@@ -56,7 +59,7 @@ function purchaseToDTO(p: any): PurchaseDTO {
 
 app.post('/api/purchases/create-payment-intent', authMiddleware, async (req, res) => {
   try {
-    const { videoId, type } = req.body
+    const { videoId, type } = paymentIntentSchema.parse(req.body)
     const userId = req.user.userId
 
     const videoResult = await pool.query(

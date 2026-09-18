@@ -17,7 +17,7 @@ data class Purchase(
         get() = "$${"%.2f".format(amountCents / 100.0)}"
 
     val isRental: Boolean
-        get() = type == "rental"
+        get() = type == "rent"
 
     val isPurchase: Boolean
         get() = type == "buy"

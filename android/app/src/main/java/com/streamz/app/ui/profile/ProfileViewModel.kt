@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamz.app.data.repository.AuthRepository
 import com.streamz.app.data.repository.PurchaseRepository
+import com.streamz.app.data.repository.toPurchase
 import com.streamz.app.domain.model.Purchase
 import com.streamz.app.domain.model.User
 import dagger.hilt.android.lifecycle.HiltViewModel

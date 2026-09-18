@@ -1,9 +1,12 @@
 import express from 'express'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import { Redis } from 'ioredis'
 import { createVideoSchema, JWTPayload, VideoDTO } from '@streamz/shared'
+
+dotenv.config()
 
 const app = express()
 const PORT = process.env.VIDEO_SERVICE_PORT || 4002

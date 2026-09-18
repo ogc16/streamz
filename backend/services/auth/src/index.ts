@@ -1,11 +1,14 @@
 import express from 'express'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
 import { registerSchema, loginSchema, JWTPayload, UserDTO } from '@streamz/shared'
+
+dotenv.config()
 
 const app = express()
 const PORT = process.env.AUTH_SERVICE_PORT || 4001

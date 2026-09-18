@@ -26,20 +26,20 @@ class PurchaseRepository @Inject constructor(
     suspend fun checkAccess(videoId: String): AccessCheckResponse {
         return api.checkAccess(videoId)
     }
+}
 
-    fun PurchaseWithVideo.toPurchase(): Purchase {
-        return Purchase(
-            id = purchase.id,
-            userId = purchase.userId,
-            videoId = purchase.videoId,
-            type = purchase.type,
-            amountCents = purchase.amountCents,
-            status = purchase.status,
-            expiresAt = purchase.expiresAt,
-            createdAt = purchase.createdAt,
-            videoTitle = video.title,
-            videoThumbnailUrl = video.thumbnailUrl,
-            videoGenre = video.genre
-        )
-    }
+fun PurchaseWithVideo.toPurchase(): Purchase {
+    return Purchase(
+        id = purchase.id,
+        userId = purchase.userId,
+        videoId = purchase.videoId,
+        type = purchase.type,
+        amountCents = purchase.amountCents,
+        status = purchase.status,
+        expiresAt = purchase.expiresAt,
+        createdAt = purchase.createdAt,
+        videoTitle = video.title,
+        videoThumbnailUrl = video.thumbnailUrl,
+        videoGenre = video.genre
+    )
 }

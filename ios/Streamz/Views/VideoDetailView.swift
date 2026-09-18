@@ -196,7 +196,7 @@ struct VideoDetailView: View {
                 if let video = vm.video {
                     HStack(spacing: 12) {
                         Button(action: {
-                            Task { await vm.initiatePurchase(type: "purchase") }
+                            Task { await vm.initiatePurchase(type: "buy") }
                         }) {
                             VStack(spacing: 4) {
                                 Text("Buy")
@@ -218,7 +218,7 @@ struct VideoDetailView: View {
                         }
 
                         Button(action: {
-                            Task { await vm.initiatePurchase(type: "rental") }
+                            Task { await vm.initiatePurchase(type: "rent") }
                         }) {
                             VStack(spacing: 4) {
                                 Text("Rent \(video.rentalDurationHours ?? 0)h")

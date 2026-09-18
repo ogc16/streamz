@@ -1,11 +1,14 @@
 import express from 'express'
 import cors from 'cors'
+import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
 import Mux from '@mux/mux-node'
 
 const app = express()
+
+dotenv.config()
 const PORT = process.env.WEBHOOK_SERVICE_PORT || 4005
 
 const pool = new Pool({

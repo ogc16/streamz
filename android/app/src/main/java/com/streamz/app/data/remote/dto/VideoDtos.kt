@@ -46,5 +46,6 @@ data class VideoDetailResponse(
     val featured: Boolean,
     val purchaseType: String?,
     val createdAt: String,
-    val purchased: Boolean
+    val purchased: Boolean,
+    val expiresAt: String?
 )
