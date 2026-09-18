@@ -10,11 +10,11 @@
   ],
   "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "migrate": "ts-node src/migrations/run.ts",
-    "lint": "eslint src/**/*.ts"
+    "dev": "npm run dev -w @streamz/api-gateway",
+    "build": "tsc -p services/auth && tsc -p services/purchase && tsc -p services/webhook && tsc -p services/streaming && tsc -p services/video && tsc -p api-gateway",
+    "start": "npm run start -w @streamz/api-gateway",
+    "migrate": "ts-node migrations/run.ts",
+    "lint": "eslint services/**/*.ts api-gateway/**/*.ts"
   },
   "dependencies": {
     "@mux/mux-node": "^8.0.0",
