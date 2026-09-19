@@ -35,7 +35,7 @@ function authMiddleware(req: any, res: any, next: any) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
     req.user = decoded
     next()
-  } catch (error) {
+  } catch {
     res.status(401).json({ error: 'Invalid token' })
   }
 }

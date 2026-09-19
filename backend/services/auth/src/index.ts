@@ -167,7 +167,7 @@ app.post('/api/auth/refresh', async (req, res) => {
     )
 
     res.json(tokens)
-  } catch (error) {
+  } catch {
     res.status(401).json({ error: 'Invalid refresh token' })
   }
 })
@@ -185,7 +185,7 @@ app.post('/api/auth/logout', async (req, res) => {
     await redis.del(`session:${decoded.userId}`)
 
     res.json({ message: 'Logged out successfully' })
-  } catch (error) {
+  } catch {
     res.status(401).json({ error: 'Invalid token' })
   }
 })
@@ -210,7 +210,7 @@ app.get('/api/auth/me', async (req, res) => {
     }
 
     res.json({ user: userToDTO(result.rows[0]) })
-  } catch (error) {
+  } catch {
     res.status(401).json({ error: 'Invalid token' })
   }
 })

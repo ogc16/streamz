@@ -1,10 +1,8 @@
 import express from 'express'
-import cors from 'cors'
 import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
-import Mux from '@mux/mux-node'
 
 const app = express()
 
@@ -36,11 +34,6 @@ async function clearVideoCache(redisClient: Redis) {
     }
   }
 }
-
-const muxClient = new Mux({
-  tokenId: process.env.MUX_TOKEN_ID!,
-  tokenSecret: process.env.MUX_TOKEN_SECRET!,
-})
 
 // Stripe webhook (raw body needed for signature verification)
 app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {

@@ -57,16 +57,6 @@ app.use('/health', (_req, res) => {
   })
 })
 
-function findTarget(path: string): string | null {
-  const sortedRoutes = Object.keys(SERVICE_MAP).sort((a, b) => b.length - a.length)
-  for (const route of sortedRoutes) {
-    if (path.startsWith(route)) {
-      return SERVICE_MAP[route]
-    }
-  }
-  return null
-}
-
 async function authMiddleware(req: any, _res: any, next: any) {
   const isPublic = PUBLIC_ROUTES.some(route => req.path.startsWith(route))
   if (isPublic) {
