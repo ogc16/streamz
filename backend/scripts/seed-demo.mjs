@@ -136,7 +136,6 @@ async function main() {
   const client = new Client({ connectionString })
   await client.connect()
 
-  const userId = randomUUID()
   const passwordHash = bcrypt.hashSync(DEMO_USER.password, 10)
 
   await client.query(
@@ -144,8 +143,13 @@ async function main() {
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (email) DO UPDATE
        SET name = EXCLUDED.name, updated_at = NOW()`,
-    [userId, DEMO_USER.email, DEMO_USER.name, passwordHash]
+    [randomUUID(), DEMO_USER.email, DEMO_USER.name, passwordHash]
   )
+
+  const [{ id: userId }] = (await client.query(
+    'SELECT id FROM auth_service.users WHERE email = $1',
+    [DEMO_USER.email]
+  )).rows
 
   for (const v of DEMO_VIDEOS) {
     await client.query(
@@ -179,6 +183,31 @@ async function main() {
         v.featured,
         v.purchaseType,
       ]
+    )
+  }
+
+  // With SEED_PURCHASE=1, grant the demo user access to two titles so the
+  // playback flow returns a real signed/public URL (used by load + walkthroughs).
+  if (process.env.SEED_PURCHASE === '1') {
+    await client.query(
+      `INSERT INTO purchase_service.purchases
+         (user_id, video_id, stripe_payment_intent_id, type, amount_cents, status, expires_at)
+       VALUES
+         ($1, $2, 'pi_demo_buy_001',  'buy', 1299, 'completed', NULL),
+         ($1, $3, 'pi_demo_rent_001', 'rent', 499, 'completed', NOW() + INTERVAL '48 hours')
+       ON CONFLICT (stripe_payment_intent_id) DO NOTHING`,
+      [userId, DEMO_VIDEOS[0].id, DEMO_VIDEOS[1].id]
+    )
+    console.log('  purchase demo user has access to', DEMO_VIDEOS[0].title, '(buy) and', DEMO_VIDEOS[1].title, '(rent)')
+
+    // Give the purchased titles playback IDs so /api/stream/playback returns a URL.
+    await client.query(
+      `UPDATE video_service.videos SET mux_playback_id = $1 WHERE id = $2`,
+      ['demoPlaybackBuy', DEMO_VIDEOS[0].id]
+    )
+    await client.query(
+      `UPDATE video_service.videos SET mux_playback_id = $1 WHERE id = $2`,
+      ['demoPlaybackRent', DEMO_VIDEOS[1].id]
     )
   }
 

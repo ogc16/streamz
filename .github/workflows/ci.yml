@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  lint-build:
+    name: Lint + Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  integration-tests:
+    name: Integration tests (Testcontainers)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Run integration tests
+        run: npm test -w integration-tests
+        timeout-minutes: 20
+
+  helm:
+    name: Helm chart lint + render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+      - name: Helm lint
+        run: helm lint helm/streamz
+      - name: Helm template
+        run: helm template streamz helm/streamz --set autoscaling.enabled=true > /dev/null
+
+  security-scans:
+    name: Secret + vulnerability scans
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks (secrets in history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Trivy (repo scan)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-results.sarif
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  load-test:
+    name: k6 load benchmarks
+    runs-on: ubuntu-latest
+    needs: [lint-build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install deps
+        working-directory: backend
+        run: npm ci
+      - name: Boot stack
+        working-directory: backend
+        run: bash scripts/ci/setup-stack.sh
+      - name: Warmup
+        working-directory: backend
+        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-warmup.js
+      - name: Auth benchmark
+        working-directory: backend
+        run: docker run --rm -i --network host -e VUS=50 -e DURATION=30s grafana/k6 run - < scripts/load/k6-auth.js
+      - name: Catalog benchmark
+        working-directory: backend
+        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-catalog.js
+      - name: Playback benchmark
+        working-directory: backend
+        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-playback.js
+      - name: Purchase read benchmark
+        working-directory: backend
+        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-purchase.js
+      - name: Teardown
+        if: always()
+        working-directory: backend
+        run: bash scripts/ci/teardown-stack.sh
+
+  chaos-smoke:
+    name: Chaos failure-injection smoke
+    runs-on: ubuntu-latest
+    needs: [lint-build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install deps
+        working-directory: backend
+        run: npm ci
+      - name: Boot stack
+        working-directory: backend
+        run: bash scripts/ci/setup-stack.sh
+      - name: Kill Redis
+        working-directory: backend
+        run: node scripts/chaos-kill-redis.mjs
+      - name: Drop Postgres
+        working-directory: backend
+        run: node scripts/chaos-drop-pg.mjs
+      - name: Mux-down fast-fail
+        working-directory: backend
+        run: node scripts/chaos-mux-down.mjs
+      - name: Teardown
+        if: always()
+        working-directory: backend
+        run: bash scripts/ci/teardown-stack.sh

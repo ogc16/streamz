@@ -39,6 +39,14 @@ export function secureJsonParser(options?: { limit?: string }): RequestHandler {
   const raw = express.raw({ type: () => true, limit })
 
   return (req: Request, res: Response, next: NextFunction) => {
+    const contentLength = Number(req.headers['content-length'] || 0)
+    const hasBody = contentLength > 0 || req.headers['transfer-encoding'] !== undefined
+
+    if (!hasBody) {
+      req.body = {}
+      return next()
+    }
+
     raw(req, res, (err?: any) => {
       if (err) {
         return res.status(400).json({ error: 'Invalid body' })
@@ -68,7 +76,18 @@ export function healthRouter(service: string, checks: HealthCheck[] = []): Route
   })
 
   router.get('/health/ready', async (_req: Request, res: Response) => {
-    const results = await Promise.allSettled(checks.map((c) => c.check()))
+    // Probe each dependency with a hard deadline so readiness fails fast and
+    // returns 503 (rather than hanging while a client waits in its reconnect
+    // queue), which is what k8s/HPA expect from startup/liveness/readiness.
+    const run = (check: HealthCheck) =>
+      Promise.race([
+        Promise.resolve().then(() => check.check()),
+        new Promise((_resolve, reject) =>
+          setTimeout(() => reject(new Error(`${check.name} timed out`)), 1000)
+        ),
+      ])
+
+    const results = await Promise.allSettled(checks.map(run))
     const failed = results
       .map((r, i) => ({ r, i }))
       .filter(({ r }) => r.status === 'rejected')

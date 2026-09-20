@@ -1,5 +1,4 @@
 import express from 'express'
-import dotenv from 'dotenv'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
 import Mux from '@mux/mux-node'
@@ -19,11 +18,12 @@ import {
   MetricsRegistry,
   metricsHandler,
   httpMetricsMiddleware,
+  loadEnv,
 } from '@streamz/shared'
 
 const app = express()
 
-dotenv.config()
+loadEnv()
 const PORT = process.env.WEBHOOK_SERVICE_PORT || 4005
 
 initLogging('webhook')
@@ -42,6 +42,7 @@ const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
+redis.on('error', (err: Error) => tracer.error(undefined, 'Redis error', err.message))
 
 app.use(requestIdMiddleware())
 applySecurity(app)

@@ -25,7 +25,7 @@ Scenarios map to the primary user journeys.
 | Auth – register + login | `scripts/load/k6-auth.js` | `POST /api/auth/login` | 500 | < 300 ms | < 0.5% |
 | Catalog browsing (cache hit) | `scripts/load/k6-catalog.js` | `GET /api/videos` | 2,000 | < 100 ms | < 0.1% |
 | Playback setup (signed URL) | `scripts/load/k6-playback.js` | `GET /api/stream/playback/:id` | 1,000 | < 200 ms | < 0.1% |
-| Payment intent (purchase) | `scripts/load/k6-purchase.js` | `POST /api/purchases/create-intent` | 250 | < 400 ms | < 1% |
+| Payment read (purchase) | `scripts/load/k6-purchase.js` | `GET /api/purchases/check/:id` | 250 | < 400 ms | < 1% |
 | **Concurrency soak – 10k streams** | `scripts/load/k6-stream-soak.js` | mixed playback setup | 10,000 | < 200 ms | < 0.1% |
 | Streak / burst (ramp to 10k in 60s) | `scripts/load/k6-burst.js` | mixed read + playback | 10,000 | < 250 ms | < 1% |
 

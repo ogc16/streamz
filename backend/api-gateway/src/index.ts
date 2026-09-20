@@ -1,6 +1,5 @@
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import { createProxyMiddleware } from 'http-proxy-middleware'
@@ -17,9 +16,10 @@ import {
   initTelemetry,
   gracefulShutdown,
   healthRouter,
+  loadEnv,
 } from '@streamz/shared'
 
-dotenv.config()
+loadEnv()
 
 initLogging('api-gateway')
 initTelemetry('api-gateway')
@@ -37,6 +37,7 @@ const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
+redis.on('error', (err: Error) => tracer.error(undefined, 'Redis error', err.message))
 
 const SERVICE_MAP: Record<string, string> = {
   '/api/auth': process.env.AUTH_SERVICE_URL || 'http://localhost:4001',
@@ -65,7 +66,7 @@ app.use(cors({
 
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: Number(process.env.RATE_LIMIT_MAX) || 100,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
@@ -86,7 +87,8 @@ app.use(
 app.get('/metrics', metricsHandler(registry))
 
 async function authMiddleware(req: any, _res: any, next: any) {
-  const isPublic = PUBLIC_ROUTES.some(route => req.path.startsWith(route))
+  const fullPath = req.baseUrl + req.path
+  const isPublic = PUBLIC_ROUTES.some(route => fullPath.startsWith(route))
   if (isPublic) {
     return next()
   }
@@ -123,7 +125,9 @@ Object.entries(SERVICE_MAP).forEach(([route, target]) => {
     createProxyMiddleware({
       target,
       changeOrigin: true,
-      pathRewrite: (path) => path,
+      // Mounted proxies strip the mount prefix from req.url (e.g. /api/auth),
+      // but every service expects its full route path. Re-add the prefix.
+      pathRewrite: (path) => (path.startsWith(route) ? path : route + path),
       proxyTimeout: 30000,
       timeout: 30000,
       on: {

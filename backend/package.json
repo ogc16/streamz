@@ -11,7 +11,7 @@
   ],
   "main": "dist/index.js",
   "scripts": {
-    "dev": "concurrently -k -n auth,video,purchase,streaming,webhook,gateway -c blue,green,yellow,magenta,cyan,red \"npm run dev -w services/auth\" \"npm run dev -w services/video\" \"npm run dev -w services/purchase\" \"npm run dev -w services/streaming\" \"npm run dev -w services/webhook\" \"npm run dev -w api-gateway\"",
+    "dev": "concurrently -k -n auth,video,purchase,streaming,webhook,gateway -c blue,green,yellow,magenta,cyan,red \"cross-env UV_THREADPOOL_SIZE=16 npm run dev -w services/auth\" \"npm run dev -w services/video\" \"npm run dev -w services/purchase\" \"npm run dev -w services/streaming\" \"npm run dev -w services/webhook\" \"npm run dev -w api-gateway\"",
     "dev:gateway": "npm run dev -w @streamz/api-gateway",
     "build": "tsc -p services/auth && tsc -p services/purchase && tsc -p services/webhook && tsc -p services/streaming && tsc -p services/video && tsc -p api-gateway",
     "start": "npm run start -w @streamz/api-gateway",
@@ -40,6 +40,7 @@
     "@types/node": "^22.7.0",
     "@types/pg": "^8.11.10",
     "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
     "eslint": "^10.11.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.6.0",

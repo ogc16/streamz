@@ -1,6 +1,5 @@
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import Mux from '@mux/mux-node'
@@ -18,9 +17,10 @@ import {
   MetricsRegistry,
   metricsHandler,
   httpMetricsMiddleware,
+  loadEnv,
 } from '@streamz/shared'
 
-dotenv.config()
+loadEnv()
 
 initLogging('streaming')
 initTelemetry('streaming')
@@ -34,6 +34,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 10,
 })
+pool.on('error', (err: Error) => tracer.error(undefined, 'Postgres pool error', err.message))
 
 const mux = new Mux({
   tokenId: process.env.MUX_TOKEN_ID!,
@@ -44,6 +45,7 @@ const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
+redis.on('error', (err: Error) => tracer.error(undefined, 'Redis error', err.message))
 
 async function clearVideoCache(redisClient: Redis) {
   const stream = redisClient.scanStream({

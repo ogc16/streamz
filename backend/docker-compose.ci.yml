@@ -1,0 +1,26 @@
+# Minimal CI stack: dependencies only (no service images to build).
+# The backend services are booted from source via `scripts/ci/setup-stack.sh`.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: streamz
+      POSTGRES_USER: streamz
+      POSTGRES_PASSWORD: streamz_secret
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U streamz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

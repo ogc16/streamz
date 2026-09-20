@@ -1,8 +1,7 @@
 import express from 'express'
 import cors from 'cors'
-import dotenv from 'dotenv'
 import { Pool } from 'pg'
-import bcrypt from 'bcryptjs'
+import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
@@ -22,9 +21,10 @@ import {
   MetricsRegistry,
   metricsHandler,
   httpMetricsMiddleware,
+loadEnv,
 } from '@streamz/shared'
 
-dotenv.config()
+loadEnv()
 
 initLogging('auth')
 initTelemetry('auth')
@@ -36,6 +36,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 10,
 })
+pool.on('error', (err: Error) => tracer.error(undefined, 'Postgres pool error', err.message))
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
@@ -45,6 +46,7 @@ const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
+redis.on('error', (err: Error) => tracer.error(undefined, 'Redis error', err.message))
 
 applySecurity(app)
 app.use(requestIdMiddleware())
@@ -104,7 +106,7 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(409).json({ error: 'Email already registered' })
     }
 
-    const passwordHash = await bcrypt.hash(password, 12)
+    const passwordHash = await bcrypt.hash(password, 10)
 
     const stripeCustomer = await stripe.customers.create({
       email,
@@ -273,3 +275,4 @@ gracefulShutdown({
 })
 
 export { pool, redis }
+

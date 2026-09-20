@@ -39,9 +39,9 @@ groups:
       # Redis cache health
       - record: job:redis_cache_hit_ratio:5m
         expr: |
-          sum(rate(redis_exporter_total_commands_processed_total{cmd="get"}[5m]) > 0) * 0  # placeholder
-          OR
-          (rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]) + 1e-9))
+          sum(rate(redis_keyspace_hits_total[5m])) by (job)
+          /
+          (sum(rate(redis_keyspace_hits_total[5m])) by (job) + sum(rate(redis_keyspace_misses_total[5m])) by (job) + 1e-9)
 
       - alert: StreamzCacheEfficiency
         expr: job:redis_cache_hit_ratio:5m < 0.60
@@ -53,9 +53,9 @@ groups:
           summary: "Redis cache hit ratio below 60% ({{ $value | humanizePercentage }})"
           runbook: "docs/observability.md#caching"
 
-      # Service readiness (availability)
-      - record: job:up:availability:7d
-        expr: sum(up{job!=""}) by (job) / sum(up{job!=""}) by (job)
+      # Service availability (30d SLO proxy)
+      - record: job:streamz:availability:30d
+        expr: avg_over_time(up[30d])
 
       - alert: StreamzServiceDown
         expr: up == 0

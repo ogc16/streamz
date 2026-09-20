@@ -97,6 +97,8 @@ spec:
                 secretKeyRef:
                   name: {{ $fullname }}-secrets
                   key: STRIPE_SECRET_KEY
+            - name: UV_THREADPOOL_SIZE
+              value: {{ $.Values.config.UV_THREADPOOL_SIZE | default "16" | quote }}
             {{- end }}
             {{- if eq $name "purchase" }}
             - name: STRIPE_SECRET_KEY
