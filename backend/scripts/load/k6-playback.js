@@ -7,13 +7,13 @@ const PLAYBACK_ID = __ENV.PLAYBACK_ID || 'demoPlaybackBuy'
 
 export const options = {
   stages: [
-    { duration: '10s', target: 200 },
-    { duration: '30s', target: 1000 },
+    { duration: __ENV.RAMP || '10s', target: Number(__ENV.VUS_INIT || 200) },
+    { duration: __ENV.DURATION || '30s', target: Number(__ENV.VUS_MAX || 1000) },
     { duration: '10s', target: 0 },
   ],
   thresholds: {
     http_req_failed: ['rate<0.001'],
-    http_req_duration: ['p(95)<200'],
+    http_req_duration: [`p(95)<${__ENV.P95_MAX || '200'}`],
   },
 }
 

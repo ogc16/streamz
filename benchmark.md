@@ -102,17 +102,33 @@ baseline; a +30% latency or +1% error regression fails the gate.
 
 ## 7. CI integration (GitHub Actions)
 
-Workflow `.github/workflows/benchmark.yml` runs on `pull_request` (labeled
-`perf`) and nightly on `master`:
+Workflow `.github/workflows/ci.yml` runs the k6 scenarios on every push
+(`load-test` job) against a freshly seeded compose stack:
 
 1. Build + `npm run lint` + unit/integration tests (Testcontainers).
-2. Boot compose stack with mock Stripe/Mux (`scripts/mock-webhooks.mjs`).
+2. Boot compose stack with mock Stripe/Mux (`scripts/ci/setup-stack.sh`).
 3. `k6 run` the table scenarios (warm + cold).
 4. Report summary comment on the PR (k6 JSON threshold + checks `<<slack||prometheus>>`).
 5. `helm template` render check; any threshold breach fails the check.
 
 Failures block merge; nightly runs post results to the observability stack
 (see `docs/observability.md`).
+
+**CI vs. production SLOs.** Shared GitHub runners (2 vCPU) cannot hit the §3
+production targets — table thresholds use `P95_MAX`/`VUS_*` env defaults, and the
+`load-test` job overrides them to a **smoke gate** that catches regressions
+(serialized bcrypt returns, cache misses, connection-pool exhaustion) without
+validating absolute SLOs:
+
+| Scenario | CI smoke gate |
+| --- | --- |
+| Auth | `VUS=20 DURATION=30s P95_MAX=1000` |
+| Catalog | `VUS_MAX=100 DURATION=15s P95_MAX=500` |
+| Playback | `VUS_MAX=50 DURATION=15s P95_MAX=500` |
+| Purchase | `VUS=20 DURATION=15s P95_MAX=1000` |
+
+Local/load-runner sessions should run at the strict table targets
+(`VUS=250 P95_MAX=300`, etc.) on ≥ 4 vCPU hardware.
 
 ## 8. Results ledger
 

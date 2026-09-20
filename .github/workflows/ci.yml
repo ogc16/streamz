@@ -102,18 +102,18 @@ jobs:
       - name: Warmup
         working-directory: backend
         run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-warmup.js
-      - name: Auth benchmark
+      - name: Auth benchmark (smoke gate; strict SLO runs on load runners, see benchmark.md)
         working-directory: backend
-        run: docker run --rm -i --network host -e VUS=50 -e DURATION=30s grafana/k6 run - < scripts/load/k6-auth.js
-      - name: Catalog benchmark
+        run: docker run --rm -i --network host -e VUS=20 -e DURATION=30s -e P95_MAX=1000 grafana/k6 run - < scripts/load/k6-auth.js
+      - name: Catalog benchmark (smoke gate)
         working-directory: backend
-        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-catalog.js
-      - name: Playback benchmark
+        run: docker run --rm -i --network host -e VUS_MAX=100 -e DURATION=15s -e P95_MAX=500 grafana/k6 run - < scripts/load/k6-catalog.js
+      - name: Playback benchmark (smoke gate)
         working-directory: backend
-        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-playback.js
-      - name: Purchase read benchmark
+        run: docker run --rm -i --network host -e VUS_MAX=50 -e DURATION=15s -e P95_MAX=500 grafana/k6 run - < scripts/load/k6-playback.js
+      - name: Purchase read benchmark (smoke gate)
         working-directory: backend
-        run: docker run --rm -i --network host grafana/k6 run - < scripts/load/k6-purchase.js
+        run: docker run --rm -i --network host -e VUS=20 -e DURATION=15s -e P95_MAX=1000 grafana/k6 run - < scripts/load/k6-purchase.js
       - name: Teardown
         if: always()
         working-directory: backend

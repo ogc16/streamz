@@ -5,13 +5,13 @@ const BASE = __ENV.BASE_URL || 'http://localhost:3000'
 
 export const options = {
   stages: [
-    { duration: '10s', target: 500 },
-    { duration: '30s', target: 2000 },
+    { duration: __ENV.RAMP || '10s', target: Number(__ENV.VUS_INIT || 500) },
+    { duration: __ENV.DURATION || '30s', target: Number(__ENV.VUS_MAX || 2000) },
     { duration: '10s', target: 0 },
   ],
   thresholds: {
     http_req_failed: ['rate<0.001'],
-    http_req_duration: ['p(95)<100'],
+    http_req_duration: [`p(95)<${__ENV.P95_MAX || '100'}`],
   },
 }
 

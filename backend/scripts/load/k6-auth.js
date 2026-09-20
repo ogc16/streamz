@@ -8,7 +8,8 @@ export const options = {
   duration: __ENV.DURATION || '60s',
   thresholds: {
     http_req_failed: ['rate<0.005'],
-    http_req_duration: ['p(95)<300'],
+    // Strict SLO target; CI passes P95_MAX for a runner-appropriate smoke gate.
+    http_req_duration: [`p(95)<${__ENV.P95_MAX || '300'}`],
   },
 }
 
