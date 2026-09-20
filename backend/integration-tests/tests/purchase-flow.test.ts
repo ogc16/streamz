@@ -126,6 +126,9 @@ describe('webhook -> purchase pipeline', () => {
     purchase.stderr?.on('data', (d) => process.stderr.write(`[purchase!] ${d}`))
 
     await waitForHttp(`http://127.0.0.1:${WEBHOOK_PORT}/webhooks/stripe`)
+    // Purchase must be subscribed before any event is sent, or the first publish
+    // is lost (Redis pub/sub has no replay). Await its readiness explicitly.
+    await waitForHttp(`http://127.0.0.1:4003/health/live`)
   })
 
   after(async () => {
@@ -165,7 +168,7 @@ describe('webhook -> purchase pipeline', () => {
     assert.equal(res.status, 200)
 
     // Wait for purchase service to consume the event + write purchase + outbox
-    const deadline = Date.now() + 15_000
+    const deadline = Date.now() + 30_000
     let purchaseRow: any = null
     while (Date.now() < deadline) {
       const result = await dbClient.query(
