@@ -1,0 +1,68 @@
+# Streamz SLO alerting rules (fired by Prometheus, routed to PagerDuty/Slack in k8s).
+
+groups:
+  - name: streamz-slos
+    rules:
+      # Error budget: 5xx on proxied routes < 0.1% over 30 days (approx via 5m window)
+      - record: job:http_5xx_ratio:rate5m
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          (sum(rate(http_requests_total[5m])) + 1e-9)
+
+      - alert: StreamzHigh5xxRate
+        expr: job:http_5xx_ratio:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: streamz
+        annotations:
+          summary: "5xx rate above 5% ({{ $value | humanizePercentage }}) over 5m"
+          runbook: "docs/observability.md#troubleshooting"
+
+      # Playback setup latency: p95 < 200ms
+      - record: job:http_p95:5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))
+
+      - alert: StreamzPlaybackLatency
+        expr: job:http_p95:5m{job="streaming"} > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          team: streamz
+        annotations:
+          summary: "Playback setup p95 above 200ms ({{ $value }}s)"
+          runbook: "docs/observability.md#troubleshooting"
+
+      # Redis cache health
+      - record: job:redis_cache_hit_ratio:5m
+        expr: |
+          sum(rate(redis_exporter_total_commands_processed_total{cmd="get"}[5m]) > 0) * 0  # placeholder
+          OR
+          (rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]) + 1e-9))
+
+      - alert: StreamzCacheEfficiency
+        expr: job:redis_cache_hit_ratio:5m < 0.60
+        for: 15m
+        labels:
+          severity: warning
+          team: streamz
+        annotations:
+          summary: "Redis cache hit ratio below 60% ({{ $value | humanizePercentage }})"
+          runbook: "docs/observability.md#caching"
+
+      # Service readiness (availability)
+      - record: job:up:availability:7d
+        expr: sum(up{job!=""}) by (job) / sum(up{job!=""}) by (job)
+
+      - alert: StreamzServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: streamz
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          runbook: "docs/observability.md#troubleshooting"

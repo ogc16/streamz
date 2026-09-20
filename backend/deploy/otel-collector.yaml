@@ -1,0 +1,38 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  debug:
+    verbosity: basic
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    auth:
+      authenticator: basicauth/prom
+
+extensions:
+  basicauth/prom:
+    client_auth:
+      username: ${env:PROMETHEUS_USER}
+      password: ${env:PROMETHEUS_PASSWORD}
+
+service:
+  extensions: [basicauth/prom]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, prometheusremotewrite]
