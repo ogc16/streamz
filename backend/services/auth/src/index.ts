@@ -18,10 +18,13 @@ import {
   tracer,
   initLogging,
   initTelemetry,
-  MetricsRegistry,
+MetricsRegistry,
   metricsHandler,
   httpMetricsMiddleware,
-loadEnv,
+  withRetry,
+  vendorRetryable,
+  CircuitBreaker,
+  loadEnv,
 } from '@streamz/shared'
 
 loadEnv()
@@ -56,6 +59,8 @@ app.use(secureJsonParser({ limit: '256kb' }))
 const registry = new MetricsRegistry()
 app.use(httpMetricsMiddleware(registry, 'auth'))
 app.get('/metrics', metricsHandler(registry))
+
+const stripeBreaker = new CircuitBreaker('stripe:customers.create', { registry })
 
 app.use(
   healthRouter('auth', [
@@ -108,11 +113,16 @@ app.post('/api/auth/register', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10)
 
-    const stripeCustomer = await stripe.customers.create({
-      email,
-      name,
-      metadata: { service: 'streamz' },
-    })
+const stripeCustomer = await stripeBreaker.execute(() =>
+      withRetry(
+        () => stripe.customers.create({
+          email,
+          name,
+          metadata: { service: 'streamz' },
+        }),
+        { attempts: 3, baseDelayMs: 200, maxDelayMs: 1200, retryable: vendorRetryable, label: 'stripe customers.create' }
+      )
+    )
 
     const result = await pool.query(
       `INSERT INTO auth_service.users (email, name, password_hash, stripe_customer_id)
@@ -158,9 +168,11 @@ app.post('/api/auth/login', async (req, res) => {
       [email]
     )
 
-    if (result.rows.length === 0) {
-      // Equalize timing for non-existent vs. invalid-password attempts
-      await bcrypt.compare('invalid-password', '$2a$12$BArOt1Yrjn6mQsRU6FJhf.ZePt6ea/Q3cM4cGN.Zsk0phep/D5G7q')
+if (result.rows.length === 0) {
+      // Equalize timing for non-existent vs. invalid-password attempts. Must be
+      // the same work factor (cost 10) as real hashes, or the dummy path itself
+      // becomes the timing oracle.
+      await bcrypt.compare('invalid-password', '$2b$10$ta2EohMi32xXU7FxMWRisujJZdanCSnjKuvplFQzYDUOHxXKxRuQO')
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 

@@ -65,6 +65,48 @@ groups:
           description: "Domain events are failing to publish to Redis after {{ \"5\" }} attempts. Check the outbox flush logs in the purchase service and inspect `events.outbox` where failed_at IS NOT NULL."
           runbook: "docs/observability.md#troubleshooting"
 
+      # Business SLO: outbox delivery p95 < 100ms (flush claim -> published_at).
+      - alert: StreamzOutboxLatency
+        expr: histogram_quantile(0.95, sum(rate(streamz_outbox_delivery_latency_seconds_bucket[5m])) by (le)) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: streamz
+        annotations:
+          summary: "Outbox delivery p95 above 100ms ({{ $value }}s)"
+          description: "Domain events are taking too long to reach Redis. Investigate Redis latency and purchase-service backpressure."
+          runbook: "docs/observability.md#troubleshooting"
+
+      # Business SLO: Stripe payment intent success rate > 99.9%.
+      - record: job:payment_intent_success_ratio:5m
+        expr: |
+          sum(rate(streamz_payment_intents_total{result="success"}[5m]))
+          /
+          (sum(rate(streamz_payment_intents_total[5m])) + 1e-9)
+
+      - alert: StreamzPaymentIntentSuccessRate
+        expr: job:payment_intent_success_ratio:5m < 0.999
+        for: 10m
+        labels:
+          severity: warning
+          team: streamz
+        annotations:
+          summary: "Payment intent success rate below 99.9% ({{ $value | humanizePercentage }})"
+          description: "Stripe payment intent creation is failing more than the SLO allows. Check the purchase service / Stripe dashboard and circuit breaker state (streamz_circuit_breaker_state)."
+          runbook: "docs/observability.md#troubleshooting"
+
+      # Business SLO: playback initialization p95 < 1.5s.
+      - alert: StreamzPlaybackInitLatency
+        expr: histogram_quantile(0.95, sum(rate(streamz_playback_issue_seconds_bucket[5m])) by (le)) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          team: streamz
+        annotations:
+          summary: "Playback initialization p95 above 1.5s ({{ $value }}s)"
+          description: "Signed playback URLs are taking too long to issue. Check the streaming service and Mux path."
+          runbook: "docs/observability.md#troubleshooting"
+
       # Service availability (30d SLO proxy)
       - record: job:streamz:availability:30d
         expr: avg_over_time(up[30d])

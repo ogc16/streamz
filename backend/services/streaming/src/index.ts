@@ -17,6 +17,9 @@ import {
   MetricsRegistry,
   metricsHandler,
   httpMetricsMiddleware,
+  withRetry,
+  vendorRetryable,
+  CircuitBreaker,
   loadEnv,
 } from '@streamz/shared'
 
@@ -66,6 +69,14 @@ app.use(secureJsonParser({ limit: '512kb' }))
 const registry = new MetricsRegistry()
 app.use(httpMetricsMiddleware(registry, 'streaming'))
 app.get('/metrics', metricsHandler(registry))
+
+const muxBreaker = new CircuitBreaker('mux:video-api', { registry })
+const playbackIssueLatency = registry.histogram(
+  'streamz_playback_issue_seconds',
+  'Playback URL issuance latency from request to response',
+  ['signed'],
+  [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2.5, 5]
+)
 
 app.use(
   healthRouter('streaming', [
@@ -120,14 +131,19 @@ app.post('/api/stream/upload-url', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: 'videoId is required' })
     }
 
-    const upload = await mux.video.uploads.create({
-      new_asset_settings: {
-        playback_policy: signingConfigured() ? ['signed'] : ['public'],
-        mp4_support: 'none',
-        normalize_audio: true,
-      },
-      cors_origin: '*',
-    })
+    const upload = await muxBreaker.execute(() =>
+      withRetry(
+        () => mux.video.uploads.create({
+          new_asset_settings: {
+            playback_policy: signingConfigured() ? ['signed'] : ['public'],
+            mp4_support: 'none',
+            normalize_audio: true,
+          },
+          cors_origin: '*',
+        }),
+        { attempts: 3, baseDelayMs: 200, maxDelayMs: 1200, retryable: vendorRetryable, label: 'mux uploads.create' }
+      )
+    )
 
     await pool.query(
       `UPDATE video_service.videos
@@ -150,9 +166,20 @@ app.post('/api/stream/upload-complete', authMiddleware, async (req, res) => {
   try {
     const { uploadId } = req.body
 
-    const upload = await mux.video.uploads.retrieve(uploadId)
+    const upload = await muxBreaker.execute(() =>
+      withRetry(
+        () => mux.video.uploads.retrieve(uploadId),
+        { attempts: 3, baseDelayMs: 200, maxDelayMs: 1200, retryable: vendorRetryable, label: 'mux uploads.retrieve' }
+      )
+    )
     if (upload.asset_id) {
-      const asset = await mux.video.assets.retrieve(upload.asset_id)
+      const assetId = upload.asset_id
+      const asset = await muxBreaker.execute(() =>
+        withRetry(
+          () => mux.video.assets.retrieve(assetId),
+          { attempts: 3, baseDelayMs: 200, maxDelayMs: 1200, retryable: vendorRetryable, label: 'mux assets.retrieve' }
+        )
+      )
 
       // Look up video by upload ID instead of trusting client-provided videoId
       const videoResult = await pool.query(
@@ -196,6 +223,7 @@ app.post('/api/stream/upload-complete', authMiddleware, async (req, res) => {
 })
 
 app.get('/api/stream/playback/:playbackId', authMiddleware, async (req, res) => {
+  const playbackStart = Date.now()
   try {
     const { playbackId } = req.params
 
@@ -251,6 +279,7 @@ app.get('/api/stream/playback/:playbackId', authMiddleware, async (req, res) => 
       expiresInSeconds: ttl,
       signed: signingOn,
     })
+    playbackIssueLatency.observe({ signed: String(signingOn) }, (Date.now() - playbackStart) / 1000)
   } catch (error) {
     tracer.error(req.requestId, 'Error getting playback URL:', error)
     res.status(500).json({ error: 'Internal server error' })

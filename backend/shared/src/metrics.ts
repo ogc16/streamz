@@ -91,14 +91,48 @@ class Histogram {
   }
 }
 
+class Gauge {
+  labelNames: string[]
+  help: string
+  name: string
+  private values = new Map<string, number>()
+
+  constructor(name: string, help: string, labelNames: string[] = []) {
+    this.name = name
+    this.help = help
+    this.labelNames = labelNames
+  }
+
+  set(labels: LabelValue = {}, value: number): void {
+    const key = this.labelNames.length === 0 ? '' : this.labelNames.map((n) => labels[n] || '').join('|')
+    this.values.set(key, value)
+  }
+
+  render(): string {
+    const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} gauge`]
+    for (const [key, value] of this.values) {
+      const labelValues = key === '' ? {} : Object.fromEntries(this.labelNames.map((n, i) => [n, key.split('|')[i]]))
+      lines.push(`${this.name}${labelString(labelValues, this.labelNames)} ${value}`)
+    }
+    return lines.join('\n')
+  }
+}
+
 export class MetricsRegistry {
   private counters: Counter[] = []
   private histograms: Histogram[] = []
+  private gauges: Gauge[] = []
 
   counter(name: string, help: string, labelNames: string[] = []): Counter {
     const c = new Counter(name, help, labelNames)
     this.counters.push(c)
     return c
+  }
+
+  gauge(name: string, help: string, labelNames: string[] = []): Gauge {
+    const g = new Gauge(name, help, labelNames)
+    this.gauges.push(g)
+    return g
   }
 
   histogram(name: string, help: string, labelNames: string[] = [], buckets?: number[]): Histogram {
@@ -108,7 +142,9 @@ export class MetricsRegistry {
   }
 
   render(): string {
-    return [...this.counters, ...this.histograms].map((m) => m.render()).join('\n') + '\n'
+    return [...this.counters, ...this.histograms, ...this.gauges]
+      .map((m) => m.render())
+      .join('\n') + '\n'
   }
 }
 

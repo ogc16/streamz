@@ -25,6 +25,8 @@ import {
   metricsHandler,
   httpMetricsMiddleware,
   withRetry,
+  vendorRetryable,
+  CircuitBreaker,
   loadEnv,
 } from '@streamz/shared'
 
@@ -69,6 +71,15 @@ app.get('/metrics', metricsHandler(registry))
 
 const outboxDelivery = registry.counter('streamz_outbox_delivery_total', 'Outbox delivery attempts by outcome', ['status'])
 const outboxDeadLetter = registry.counter('streamz_outbox_dead_lettered_total', 'Outbox entries permanently failed after max attempts')
+const outboxLatency = registry.histogram(
+  'streamz_outbox_delivery_latency_seconds',
+  'Outbox publish latency (flush-claim to published_at)',
+  ['status'],
+  [0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5]
+)
+const paymentIntents = registry.counter('streamz_payment_intents_total', 'Stripe payment intent creation attempts by result', ['result'])
+
+const stripeBreaker = new CircuitBreaker('stripe:paymentIntents.create', { registry })
 
 // Outbox flush bounds: at most FLUSH_BATCH_SIZE rows per pass, FLUSH_MAX_PASSES
 // passes per tick, FLUSH_CONCURRENCY in-flight, FLUSH_INTERVAL_MS apart. A fast
@@ -116,6 +127,7 @@ async function deliverOutboxRow(row: OutboxRow): Promise<'published' | 'dead-let
   }
 
   try {
+    const publishStart = Date.now()
     await withRetry(
       async () => {
         // row.payload is a raw JSONB string; publish it verbatim (no re-stringify).
@@ -127,6 +139,7 @@ async function deliverOutboxRow(row: OutboxRow): Promise<'published' | 'dead-let
       },
       { attempts: 3, baseDelayMs: 100, label: `outbox publish ${row.channel}` }
     )
+    outboxLatency.observe({ status: 'published' }, (Date.now() - publishStart) / 1000)
     tracer.info(undefined, `Dispatched outbox entry ${row.id} on ${row.channel}`)
     return 'published'
   } catch (error) {
@@ -255,6 +268,7 @@ redisSub.on('message', async (channel, message) => {
             // Best-effort immediate publish (keeps the common path low-latency);
             // on failure the continuous flush loop retries with bounded attempts
             // and dead-letters the row after OUTBOX_MAX_DELIVERIES.
+            const publishStart = Date.now()
             return withRetry(
               () => redis.publish(EVENTS.PURCHASE_RECORDED, payload),
               { attempts: 3, baseDelayMs: 100, label: `outbox publish ${outboxId}` }
@@ -263,6 +277,7 @@ redisSub.on('message', async (channel, message) => {
                 `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
                 [outboxId]
               ))
+              .then(() => outboxLatency.observe({ status: 'published' }, (Date.now() - publishStart) / 1000))
               .catch((error) => {
                 tracer.warn(undefined, `Immediate outbox publish ${outboxId} failed; flush loop will retry:`, (error as Error)?.message)
               })
@@ -406,16 +421,30 @@ app.post('/api/purchases/create-payment-intent', authMiddleware, async (req, res
       metadata.rentalHours = String(video.rental_duration_hours)
     }
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: priceCents,
-      currency: (process.env.STRIPE_CURRENCY || 'usd').toLowerCase(),
-      customer: stripeCustomerId,
-      metadata: metadata as any,
-      description: `${type === 'rent' ? 'Rent' : 'Buy'}: ${video.title}`,
-      automatic_payment_methods: {
-        enabled: true,
-      },
-    })
+    let paymentIntent
+    try {
+      // Retry vendor 429/5xx inside a circuit breaker so a degraded Stripe fails
+      // fast instead of letting every concurrent checkout pile up on it.
+      paymentIntent = await stripeBreaker.execute(() =>
+        withRetry(
+          () => stripe.paymentIntents.create({
+            amount: priceCents,
+            currency: (process.env.STRIPE_CURRENCY || 'usd').toLowerCase(),
+            customer: stripeCustomerId,
+            metadata: metadata as any,
+            description: `${type === 'rent' ? 'Rent' : 'Buy'}: ${video.title}`,
+            automatic_payment_methods: {
+              enabled: true,
+            },
+          }),
+          { attempts: 3, baseDelayMs: 200, maxDelayMs: 1200, retryable: vendorRetryable, label: 'stripe paymentIntents.create' }
+        )
+      )
+      paymentIntents.inc({ result: 'success' })
+    } catch (error) {
+      paymentIntents.inc({ result: 'failure' })
+      throw error
+    }
 
     res.json({
       clientSecret: paymentIntent.client_secret,

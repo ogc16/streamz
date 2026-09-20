@@ -36,6 +36,23 @@ npm run dev
 - Traces are exported by each service to `http://otel-collector:4318` when you run
   inside compose. For local dev, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`.
 
+## Cross-service trace propagation
+
+Each service uses `@opentelemetry/auto-instrumentations-node`, so when tracing is
+enabled it emits W3C `traceparent`/`tracestate` on outgoing HTTP. The gateway
+forwards any `traceparent`/`tracestate` it receives onto proxied backend requests
+(`backend/api-gateway/src/index.ts`), so an edge-initiated trace carries through
+`gateway -> api-gateway -> service`. Service-to-service handoffs happen over Redis
+pub/sub rather than nested HTTP, so correlation there is via `x-request-id` +
+`requestIdMiddleware`. Verify end-to-end with:
+
+1. Start the observability stack, set `OTEL_EXPORTER_OTLP_ENDPOINT=...` on all
+   services (compose sets this), and enable the collector `debug` pipeline.
+2. Hit any proxied route and confirm a span appears for the backend service with
+   the same `trace_id` as the gateway edge span.
+3. `GET /metrics` exposes `streamz_circuit_breaker_state` per vendor call; when a
+   breaker is `2` (open), requests fail fast with `CircuitOpenError`.
+
 ## Dashboards
 
 `deploy/grafana/provisioning/dashboards/streamz-overview.json` (auto-loaded, folder

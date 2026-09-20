@@ -9,6 +9,23 @@ export interface RetryOptions {
   label?: string
 }
 
+// Retryable filter for external vendor SDK calls (Stripe/Mux): transient network
+// failures plus vendor 429/5xx surfaces, which their SDKs surface in message text.
+export const vendorRetryable = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    const message = error.message || ''
+    return (
+      message.includes('ECONNRESET') ||
+      message.includes('ECONNREFUSED') ||
+      message.includes('ETIMEDOUT') ||
+      message.includes('socket hang up') ||
+      /status code 429/.test(message) ||
+      /status code 5\d\d/.test(message)
+    )
+  }
+  return false
+}
+
 const DEFAULT_RETRYABLE = (error: unknown) => {
   const code = (error as { code?: string })?.code
   if (typeof code === 'string') {

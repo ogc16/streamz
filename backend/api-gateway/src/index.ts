@@ -1,6 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
+import { RedisStore } from 'rate-limit-redis'
 import jwt from 'jsonwebtoken'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { Redis } from 'ioredis'
@@ -70,6 +71,12 @@ app.use(rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' },
+  // Redis-backed store so throttling is consistent across scaled gateway
+  // replicas (an in-memory store is per-pod and bypassable behind proxies).
+  store: new RedisStore({
+    sendCommand: (...args: string[]) => (redis.call as (...a: string[]) => Promise<string>)(...args),
+    prefix: 'rl:streamz:',
+  }),
 }))
 
 app.use(
@@ -140,6 +147,14 @@ Object.entries(SERVICE_MAP).forEach(([route, target]) => {
           }
           if (req.requestId) {
             proxyReq.setHeader('x-request-id', req.requestId)
+          }
+          // OpenTelemetry W3C context propagation (edge -> backend). When OTel is
+          // enabled the auto-instrumented proxy generates these; pass any we get.
+          if (req.headers['traceparent']) {
+            proxyReq.setHeader('traceparent', req.headers['traceparent'])
+          }
+          if (req.headers['tracestate']) {
+            proxyReq.setHeader('tracestate', req.headers['tracestate'])
           }
         },
         proxyRes: (proxyRes) => {
