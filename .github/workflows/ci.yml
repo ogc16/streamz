@@ -61,6 +61,9 @@ jobs:
   security-scans:
     name: Secret + vulnerability scans
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,7 +81,7 @@ jobs:
           format: sarif
           output: trivy-results.sarif
       - name: Upload Trivy SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
 
