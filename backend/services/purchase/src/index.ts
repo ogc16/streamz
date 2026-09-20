@@ -67,6 +67,25 @@ const registry = new MetricsRegistry()
 app.use(httpMetricsMiddleware(registry, 'purchase'))
 app.get('/metrics', metricsHandler(registry))
 
+const outboxDelivery = registry.counter('streamz_outbox_delivery_total', 'Outbox delivery attempts by outcome', ['status'])
+const outboxDeadLetter = registry.counter('streamz_outbox_dead_lettered_total', 'Outbox entries permanently failed after max attempts')
+
+// Outbox flush bounds: at most FLUSH_BATCH_SIZE rows per pass, FLUSH_MAX_PASSES
+// passes per tick, FLUSH_CONCURRENCY in-flight, FLUSH_INTERVAL_MS apart. A fast
+// producer thus backpressures on a bounded buffer instead of unbounded queue growth.
+const OUTBOX_FLUSH_INTERVAL_MS = 15_000
+const OUTBOX_FLUSH_BATCH_SIZE = 100
+const OUTBOX_FLUSH_MAX_PASSES = 10
+const OUTBOX_FLUSH_CONCURRENCY = 8
+const OUTBOX_MAX_DELIVERIES = 5
+
+interface OutboxRow {
+  id: string
+  channel: string
+  payload: string
+  deliveries: number
+}
+
 app.use(
   healthRouter('purchase', [
     {
@@ -84,31 +103,106 @@ app.use(
   ])
 )
 
-async function publishOutboxRow(outboxId: string, channel: string, payload: object) {
-  await withRetry(
-    async () => {
-      await redis.publish(channel, JSON.stringify(payload))
-      await pool.query(
-        `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
-        [outboxId]
-      )
-    },
-    { attempts: 3, baseDelayMs: 100, label: `outbox publish ${channel}` }
+async function deliverOutboxRow(row: OutboxRow): Promise<'published' | 'dead-lettered' | 'retryable-failed'> {
+  // Claim one bounded delivery attempt. Rows at the cap are skipped and dead-lettered.
+  const claimed = await pool.query<{ id: string; deliveries: number }>(
+    `UPDATE events.outbox SET deliveries = deliveries + 1
+     WHERE id = $1 AND published_at IS NULL AND failed_at IS NULL AND deliveries < $2
+     RETURNING id, deliveries`,
+    [row.id, OUTBOX_MAX_DELIVERIES]
   )
+  if (claimed.rows.length === 0) {
+    return 'dead-lettered'
+  }
+
+  try {
+    await withRetry(
+      async () => {
+        // row.payload is a raw JSONB string; publish it verbatim (no re-stringify).
+        await redis.publish(row.channel, row.payload)
+        await pool.query(
+          `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
+          [row.id]
+        )
+      },
+      { attempts: 3, baseDelayMs: 100, label: `outbox publish ${row.channel}` }
+    )
+    tracer.info(undefined, `Dispatched outbox entry ${row.id} on ${row.channel}`)
+    return 'published'
+  } catch (error) {
+    const lastError = (error as Error)?.message || String(error)
+    if (claimed.rows[0].deliveries >= OUTBOX_MAX_DELIVERIES) {
+      await pool.query(
+        `UPDATE events.outbox SET failed_at = NOW(), last_error = $2 WHERE id = $1`,
+        [row.id, lastError]
+      )
+      outboxDeadLetter.inc()
+      tracer.error(undefined, `Outbox entry ${row.id} dead-lettered after ${OUTBOX_MAX_DELIVERIES} attempts:`, lastError)
+      return 'dead-lettered'
+    }
+    tracer.warn(undefined, `Outbox entry ${row.id} failed (delivery ${claimed.rows[0].deliveries}/${OUTBOX_MAX_DELIVERIES}), will retry:`, lastError)
+    return 'retryable-failed'
+  }
 }
 
-async function replayOutbox() {
-  const result = await pool.query(
-    `SELECT id, channel, payload FROM events.outbox
-     WHERE published_at IS NULL ORDER BY created_at ASC`
-  )
-  for (const row of result.rows) {
-    try {
-      await publishOutboxRow(row.id, row.channel, row.payload)
-      tracer.info(undefined, `Replayed outbox entry ${row.id} on ${row.channel}`)
-    } catch (error) {
-      tracer.error(undefined, `Failed to replay outbox entry ${row.id}:`, error)
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  let next = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next++
+      results[idx] = await fn(items[idx])
     }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+// Bounded batch flush: pending rows (unpublished, not dead-lettered, attempts
+// remaining) are processed in batches of OUTBOX_FLUSH_BATCH_SIZE with at most
+// OUTBOX_FLUSH_CONCURRENCY in flight, so memory stays bounded under a flood.
+async function flushOutboxBatch(): Promise<number> {
+  const pending = await pool.query<OutboxRow>(
+    `SELECT id, channel, payload, deliveries FROM events.outbox
+     WHERE published_at IS NULL AND failed_at IS NULL
+       AND deliveries < $1
+     ORDER BY created_at ASC
+     LIMIT $2`,
+    [OUTBOX_MAX_DELIVERIES, OUTBOX_FLUSH_BATCH_SIZE]
+  )
+  await mapLimit(pending.rows, OUTBOX_FLUSH_CONCURRENCY, async (row) => {
+    const outcome = await deliverOutboxRow(row)
+    outboxDelivery.inc({ status: outcome })
+  })
+  return pending.rows.length
+}
+
+let flushing = false
+async function flushOutboxLoop(): Promise<void> {
+  if (flushing) return
+  flushing = true
+  try {
+    for (let pass = 0; pass < OUTBOX_FLUSH_MAX_PASSES; pass++) {
+      const processed = await flushOutboxBatch()
+      if (processed < OUTBOX_FLUSH_BATCH_SIZE) break
+    }
+    // Sweep: surface rows that exhausted attempts without ever being marked
+    // (e.g. raced by another replica) so they stop silently accumulating.
+    const swept = await pool.query(
+      `UPDATE events.outbox SET failed_at = NOW(),
+              last_error = COALESCE(last_error, 'exceeded delivery attempts')
+       WHERE published_at IS NULL AND failed_at IS NULL AND deliveries >= $1
+       RETURNING id`,
+      [OUTBOX_MAX_DELIVERIES]
+    )
+    if (swept.rowCount) {
+      outboxDeadLetter.inc(undefined, swept.rowCount)
+      tracer.error(undefined, `Dead-lettered ${swept.rowCount} outbox entr(ies) that exceeded attempts`)
+    }
+  } catch (error) {
+    tracer.error(undefined, 'Outbox flush failed:', error)
+  } finally {
+    flushing = false
   }
 }
 
@@ -155,7 +249,24 @@ redisSub.on('message', async (channel, message) => {
               maxDelayMs: 1500,
               label: `purchase+outbox tx ${event.paymentIntentId}`,
             }
-          ).then((outbox) => publishOutboxRow(outbox.rows[0].id, EVENTS.PURCHASE_RECORDED, outboxPayload))
+          ).then((outbox) => {
+            const outboxId = outbox.rows[0].id
+            const payload = JSON.stringify(outboxPayload)
+            // Best-effort immediate publish (keeps the common path low-latency);
+            // on failure the continuous flush loop retries with bounded attempts
+            // and dead-letters the row after OUTBOX_MAX_DELIVERIES.
+            return withRetry(
+              () => redis.publish(EVENTS.PURCHASE_RECORDED, payload),
+              { attempts: 3, baseDelayMs: 100, label: `outbox publish ${outboxId}` }
+            )
+              .then(() => pool.query(
+                `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
+                [outboxId]
+              ))
+              .catch((error) => {
+                tracer.warn(undefined, `Immediate outbox publish ${outboxId} failed; flush loop will retry:`, (error as Error)?.message)
+              })
+          })
         } catch (txError) {
           try {
             await client.query('ROLLBACK')
@@ -374,9 +485,10 @@ app.get('/api/purchases/check/:videoId', authMiddleware, async (req, res) => {
   }
 })
 
-replayOutbox().catch((error) => {
-  tracer.error(undefined, 'Initial outbox replay failed:', error)
-})
+// Continuous bounded outbox flush: an immediate pass on boot (replaces the old
+// single boot-time replay) plus periodic passes. Non-overlapping via `flushing`.
+flushOutboxLoop()
+setInterval(flushOutboxLoop, OUTBOX_FLUSH_INTERVAL_MS).unref()
 
 const server = app.listen(PORT, () => {
   tracer.info(undefined, `Purchase service running on port ${PORT}`)

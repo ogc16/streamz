@@ -53,6 +53,18 @@ groups:
           summary: "Redis cache hit ratio below 60% ({{ $value | humanizePercentage }})"
           runbook: "docs/observability.md#caching"
 
+      # Event outbox dead-letter: any entry that exhausted delivery attempts means a
+      # domain event is permanently undelivered (alert also covers repeated batches).
+      - alert: StreamzOutboxDeadLetters
+        expr: increase(streamz_outbox_dead_lettered_total[15m]) > 0
+        labels:
+          severity: warning
+          team: streamz
+        annotations:
+          summary: "Outbox entries are being dead-lettered ({{ $value }} failures in 15m)"
+          description: "Domain events are failing to publish to Redis after {{ \"5\" }} attempts. Check the outbox flush logs in the purchase service and inspect `events.outbox` where failed_at IS NOT NULL."
+          runbook: "docs/observability.md#troubleshooting"
+
       # Service availability (30d SLO proxy)
       - record: job:streamz:availability:30d
         expr: avg_over_time(up[30d])
