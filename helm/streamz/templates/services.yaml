@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: {{ $name }}
-          image: "{{ $.Values.image.repository }}:{{ $svc.target }}"
+          image: "{{ $.Values.image.repository }}/{{ $svc.target }}:{{ $.Values.image.tag }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           ports:
             - containerPort: {{ $svc.port }}

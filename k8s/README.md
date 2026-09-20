@@ -17,9 +17,11 @@ Images are built per Dockerfile target (auth/video/purchase/streaming/webhook/ga
 
 ```sh
 cd backend
+REGISTRY=ghcr.io/ogc16/streamz/backend
+TAG=v1.0.0
 for svc in gateway auth video purchase streaming webhook; do
-  docker build --target ${svc} -t your-registry/streamz/backend:${svc} .
-  docker push your-registry/streamz/backend:${svc}
+  docker build --target ${svc} -t ${REGISTRY}/${svc}:${TAG} .
+  docker push ${REGISTRY}/${svc}:${TAG}
 done
 ```
 

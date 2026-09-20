@@ -1,10 +1,11 @@
 # Values for the Streamz backend Helm chart.
 
 image:
-  # Images are built per Dockerfile target (auth/video/purchase/streaming/webhook/gateway).
-  # Use the --target flag: docker build --target <service> -t streamz/backend:<service> .
-  repository: streamz/backend
-  tag: "latest"
+  # Images are built per Dockerfile target (auth/video/purchase/streaming/webhook/gateway)
+  # and published as ghcr.io/<org>/streamz/backend/<service>:<tag>.
+  # Use the --target flag: docker build --target <service> -t <registry>/streamz/backend/<service>:<tag> .
+  repository: ghcr.io/ogc16/streamz/backend
+  tag: "v1.0.0"
   pullPolicy: IfNotPresent
 
 replicas: 1
