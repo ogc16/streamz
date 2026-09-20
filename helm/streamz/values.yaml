@@ -9,13 +9,39 @@ image:
 
 replicas: 1
 
+# Per-service horizontal autoscaling (Kubernetes HPA / autoscaling/v2).
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Resource requests/limits per service; falls back to `default`.
+resources:
+  default:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  gateway:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  streaming:
+    requests: { cpu: 200m, memory: 384Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  purchase:
+    requests: { cpu: 150m, memory: 256Mi }
+    limits: { cpu: "1", memory: 768Mi }
+
 services:
-  gateway:    { enabled: true,  port: 3000, target: gateway }
-  auth:       { enabled: true,  port: 4001, target: auth }
-  video:      { enabled: true,  port: 4002, target: video }
-  purchase:   { enabled: true,  port: 4003, target: purchase }
-  streaming:  { enabled: true,  port: 4004, target: streaming }
-  webhook:    { enabled: true,  port: 4005, target: webhook }
+  gateway:    { enabled: true,  port: 3000, target: gateway,    replicas: 2 }
+  auth:       { enabled: true,  port: 4001, target: auth,       replicas: 2 }
+  video:      { enabled: true,  port: 4002, target: video,      replicas: 2 }
+  purchase:   { enabled: true,  port: 4003, target: purchase,   replicas: 2 }
+  streaming:  { enabled: true,  port: 4004, target: streaming,  replicas: 3 }
+  webhook:    { enabled: true,  port: 4005, target: webhook,    replicas: 1 }
+
+# Default replica count when autoscaling is disabled (dev/CI).
+replicas: 1
 
 postgres:
   enabled: true

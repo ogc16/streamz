@@ -13,7 +13,7 @@ metadata:
     {{- include "streamz.labels" $ | nindent 4 }}
     app: {{ $name }}
 spec:
-  replicas: {{ $.Values.replicas }}
+  replicas: {{ index $svc "replicas" | default $.Values.replicas }}
   selector:
     matchLabels:
       app: {{ $name }}
@@ -29,6 +29,12 @@ spec:
           ports:
             - containerPort: {{ $svc.port }}
               name: http
+          resources:
+            {{- $res := $.Values.resources.default }}
+            {{- if hasKey $.Values.resources $name }}
+              {{- $res = index $.Values.resources $name }}
+            {{- end }}
+            {{- toYaml $res | nindent 12 }}
           env:
             - name: {{ upper $name }}_SERVICE_PORT
               value: {{ $svc.port | quote }}
@@ -152,10 +158,23 @@ spec:
                   name: {{ $fullname }}-secrets
                   key: MUX_WEBHOOK_SECRET
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
           readinessProbe:
             httpGet:
-              path: /
-              port: {{ $svc.port }}
+              path: /health/ready
+              port: http
             initialDelaySeconds: 5
             periodSeconds: 10
 ---
