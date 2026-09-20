@@ -1,0 +1,65 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "streamz.fullname" . }}-postgres
+  labels:
+    {{- include "streamz.labels" . | nindent 4 }}
+    app: postgres
+spec:
+  serviceName: {{ include "streamz.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+      {{- include "streamz.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: postgres
+        {{- include "streamz.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          ports:
+            - containerPort: 5432
+              name: pg
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.db }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "streamz.fullname" . }}-postgres
+  labels:
+    {{- include "streamz.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - port: 5432
+      name: pg
+  selector:
+    app: postgres
+{{- end }}

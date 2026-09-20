@@ -4,7 +4,19 @@ import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
-import { JWTPayload, StripeMetadata, PurchaseDTO, paymentIntentSchema } from '@streamz/shared'
+import { Redis } from 'ioredis'
+import {
+  JWTPayload,
+  StripeMetadata,
+  PurchaseDTO,
+  paymentIntentSchema,
+  EVENTS,
+  PurchaseCompletedEvent,
+  PurchaseRecordedEvent,
+  PurchaseRefundedEvent,
+  requestIdMiddleware,
+  tracer,
+} from '@streamz/shared'
 
 dotenv.config()
 
@@ -20,8 +32,120 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
 })
 
+const redis = new Redis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+})
+
+const redisSub = new Redis({
+  host: process.env.REDIS_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_PORT || '6379'),
+})
+
 app.use(cors())
 app.use(express.json())
+app.use(requestIdMiddleware())
+
+async function publishOutboxRow(outboxId: string, channel: string, payload: object) {
+  await redis.publish(channel, JSON.stringify(payload))
+  await pool.query(
+    `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
+    [outboxId]
+  )
+}
+
+async function replayOutbox() {
+  const result = await pool.query(
+    `SELECT id, channel, payload FROM events.outbox
+     WHERE published_at IS NULL ORDER BY created_at ASC`
+  )
+  for (const row of result.rows) {
+    try {
+      await publishOutboxRow(row.id, row.channel, row.payload)
+      tracer.info(undefined, `Replayed outbox entry ${row.id} on ${row.channel}`)
+    } catch (error) {
+      tracer.error(undefined, `Failed to replay outbox entry ${row.id}:`, error)
+    }
+  }
+}
+
+redisSub.on('message', async (channel, message) => {
+  try {
+    switch (channel) {
+      case EVENTS.PURCHASE_COMPLETED: {
+        const event = JSON.parse(message) as PurchaseCompletedEvent
+        const outboxPayload: PurchaseRecordedEvent = {
+          ...event,
+          recordedAt: new Date().toISOString(),
+        }
+        const client = await pool.connect()
+        try {
+          await client.query('BEGIN')
+          await client.query(
+            `INSERT INTO purchase_service.purchases
+             (user_id, video_id, stripe_payment_intent_id, type, amount_cents, status, expires_at)
+             VALUES ($1, $2, $3, $4, $5, 'completed', $6)
+             ON CONFLICT (stripe_payment_intent_id) DO NOTHING`,
+            [
+              event.userId,
+              event.videoId,
+              event.paymentIntentId,
+              event.purchaseType,
+              event.amountCents,
+              event.expiresAt,
+            ]
+          )
+          const outbox = await client.query(
+            `INSERT INTO events.outbox (channel, payload)
+             VALUES ($1, $2)
+             RETURNING id`,
+            [EVENTS.PURCHASE_RECORDED, JSON.stringify(outboxPayload)]
+          )
+          await client.query('COMMIT')
+          await publishOutboxRow(outbox.rows[0].id, EVENTS.PURCHASE_RECORDED, outboxPayload)
+        } catch (txError) {
+          await client.query('ROLLBACK')
+          throw txError
+        } finally {
+          client.release()
+        }
+        await redis.del(`purchases:${event.userId}`)
+        await redis.del(`videos:list:${event.userId}`)
+        await redis.del(`videos:featured:${event.userId}`)
+        tracer.info(undefined, 'Purchase recorded from event:', event.paymentIntentId)
+        break
+      }
+
+      case EVENTS.PURCHASE_REFUNDED: {
+        const event = JSON.parse(message) as PurchaseRefundedEvent
+        await pool.query(
+          `UPDATE purchase_service.purchases
+           SET status = 'refunded', updated_at = NOW()
+           WHERE stripe_payment_intent_id = $1`,
+          [event.paymentIntentId]
+        )
+        tracer.info(undefined, 'Purchase refunded from event:', event.paymentIntentId)
+        break
+      }
+
+      case EVENTS.RENTAL_CLEANUP: {
+        const result = await pool.query(
+          `UPDATE purchase_service.purchases
+           SET status = 'expired', updated_at = NOW()
+           WHERE type = 'rent' AND status = 'completed'
+           AND expires_at IS NOT NULL AND expires_at < NOW()
+           RETURNING id`
+        )
+        tracer.info(undefined, 'Rental cleanup expired:', result.rowCount, 'purchase(s)')
+        break
+      }
+    }
+  } catch (error) {
+    tracer.error(undefined, `Error handling event on channel ${channel}:`, error)
+  }
+})
+
+redisSub.subscribe(EVENTS.PURCHASE_COMPLETED, EVENTS.PURCHASE_REFUNDED, EVENTS.RENTAL_CLEANUP)
 
 function authMiddleware(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization
@@ -30,7 +154,9 @@ function authMiddleware(req: any, res: any, next: any) {
   }
   try {
     const token = authHeader.split(' ')[1]
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, {
+      algorithms: ['HS256'],
+    }) as JWTPayload
     req.user = decoded
     next()
   } catch {
@@ -128,7 +254,7 @@ app.post('/api/purchases/create-payment-intent', authMiddleware, async (req, res
       amount: priceCents,
     })
   } catch (error) {
-    console.error('Error creating payment intent:', error)
+    tracer.error(req.requestId, 'Error creating payment intent:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -157,7 +283,7 @@ app.get('/api/purchases', authMiddleware, async (req, res) => {
       },
     })))
   } catch (error) {
-    console.error('Error fetching purchases:', error)
+    tracer.error(req.requestId, 'Error fetching purchases:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -186,13 +312,17 @@ app.get('/api/purchases/check/:videoId', authMiddleware, async (req, res) => {
       expiresAt: purchase.expires_at?.toISOString() || null,
     })
   } catch (error) {
-    console.error('Error checking purchase:', error)
+    tracer.error(req.requestId, 'Error checking purchase:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
+replayOutbox().catch((error) => {
+  tracer.error(undefined, 'Initial outbox replay failed:', error)
+})
+
 app.listen(PORT, () => {
-  console.log(`Purchase service running on port ${PORT}`)
+  tracer.info(undefined, `Purchase service running on port ${PORT}`)
 })
 
 export { pool, stripe }

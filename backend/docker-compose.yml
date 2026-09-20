@@ -26,6 +26,18 @@ services:
       timeout: 5s
       retries: 5
 
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    ports:
+      - "6432:6432"
+    volumes:
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   api-gateway:
     build:
       context: .
@@ -57,7 +69,7 @@ services:
       - "4001:4001"
     environment:
       AUTH_SERVICE_PORT: 4001
-      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
@@ -79,7 +91,7 @@ services:
       - "4002:4002"
     environment:
       VIDEO_SERVICE_PORT: 4002
-      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -99,7 +111,7 @@ services:
       - "4003:4003"
     environment:
       PURCHASE_SERVICE_PORT: 4003
-      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_CURRENCY: usd
@@ -121,10 +133,13 @@ services:
       - "4004:4004"
     environment:
       STREAMING_SERVICE_PORT: 4004
-      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       MUX_TOKEN_ID: ${MUX_TOKEN_ID}
       MUX_TOKEN_SECRET: ${MUX_TOKEN_SECRET}
+      MUX_SIGNING_KEY: ${MUX_SIGNING_KEY}
+      MUX_PRIVATE_KEY: ${MUX_PRIVATE_KEY}
+      PLAYBACK_TTL_SECONDS: 3600
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:
@@ -143,12 +158,13 @@ services:
       - "4005:4005"
     environment:
       WEBHOOK_SERVICE_PORT: 4005
-      DATABASE_URL: postgresql://streamz:streamz_secret@postgres:5432/streamz
+      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
       MUX_TOKEN_ID: ${MUX_TOKEN_ID}
       MUX_TOKEN_SECRET: ${MUX_TOKEN_SECRET}
+      MUX_WEBHOOK_SECRET: ${MUX_WEBHOOK_SECRET}
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:

@@ -54,6 +54,11 @@ fun PlayerScreen(
                 setMediaItem(MediaItem.fromUri(Uri.parse(url)))
                 prepare()
                 playWhenReady = true
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        viewModel.onBufferingChanged(playbackState == Player.STATE_BUFFERING)
+                    }
+                })
             }
         }
     }
@@ -123,6 +128,13 @@ fun PlayerScreen(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                if (uiState.isBuffering) {
+                    CircularProgressIndicator(
+                        color = StreamzRed,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
 
                 // Back button overlay
                 IconButton(

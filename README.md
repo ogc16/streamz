@@ -94,11 +94,11 @@ node_video_service -->|"reads catalog"| node_postgres
 node_purchase_service -->|"creates intents"| node_stripe
 node_purchase_service -->|"stores purchases"| node_postgres
 node_streaming_service -->|"gets media URLs"| node_mux
-node_webhook_service -->|"caches / publishes"| node_redis
+node_webhook_service -->|"verifies + publishes<br/>provider events"| node_redis
 node_stripe -->|"sends payment events"| node_webhook_service
 node_mux -->|"sends asset events"| node_webhook_service
-node_webhook_service -->|"records events"| node_postgres
-node_webhook_service -->|"updates assets"| node_video_service
+node_redis -->|"purchase:recorded / outbox"| node_purchase_service
+node_purchase_service -.->|"subscribes to<br/>purchase events"| node_redis
 
 click node_android_app "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/MainActivity.kt"
 click node_ios_app "https://github.com/ogc16/streamz/blob/master/ios/Streamz/StreamzApp.swift"
@@ -155,8 +155,17 @@ class node_postgres,node_stripe,node_mux,node_redis toneRose
   - *Stripe:* every `/webhooks/stripe` payload is verified with `stripe.webhooks.constructEvent` against `STRIPE_WEBHOOK_SECRET` (`stripe-signature` header).
   - *Mux:* every `/webhooks/mux` payload is verified with `mux.webhooks.verifySignature` against `MUX_WEBHOOK_SECRET` (`mux-signature` header).
   - Requests failing signature checks are rejected with `400` before any state is touched.
+  - Webhook bodies are parsed with a prototype-pollution guard (`__proto__`/`constructor` keys stripped).
 - **Rate limiting** — the API Gateway enforces an **IP-based** limiter (`express-rate-limit`, default key on client IP): 100 requests per 15-minute window, returning `429` beyond that.
-- **JWT rotation** — short-lived access tokens with refresh tokens stored server-side and rotated on refresh.
+- **JWT hardening** — all `jwt.verify` calls pin the algorithm (`algorithms: ['HS256']`) to block confusion attacks; access tokens are short-lived (15m) and refreshed tokens are rotated server-side.
+- **Signed Mux playback (rental-aligned TTL)** — when `MUX_SIGNING_KEY` + `MUX_PRIVATE_KEY` are set, uploads use a **signed** playback policy and every playback/thumbnail URL carries a JWT whose expiry is `min(defaultTTL, remaining rental time)`, so a leaked `.m3u8` dies with the rental.
+- **Timing-equalized login** — unknown emails run a dummy `bcrypt.compare` so response time doesn't reveal whether an account exists.
+- **Parameterized SQL everywhere** — video search/genre/sort/filters use parameterized queries plus an allow-listed `sort` column and clamped `page`/`limit`; no client input reaches the SQL text.
+- **Transactional outbox** — the purchase service writes the purchase row + an outbox entry (`events.outbox`) in **one DB transaction**, then publishes `purchase:recorded`; unpublished rows are replayed on startup. Exactly-once domain events with at-least-once delivery.
+- **Connection pooling** — services are configured to route through **PgBouncer** (transaction pooling, `:6432`) in Docker to prevent connection exhaustion.
+- **Correlation IDs** — shared `requestIdMiddleware` attaches/generates an `X-Request-ID` per request through gateway → services and prefixes all logs, so a payment flow is traceable end-to-end.
+- **Checkout resilience** — after a successful Stripe PaymentSheet, mobile clients **poll** `GET /api/purchases/check/:videoId` until access is granted, so an interrupted webhook round-trip can't silently ghost an order.
+- **Off-main thread playback** — Android fetches the playback URL on `Dispatchers.IO` and surfaces an explicit buffering spinner (ExoPlayer `STATE_BUFFERING`); AVPlayer/ExoPlayer render on their own media threads.
 
 ## 5 · Tech Stack Summary
 
@@ -220,6 +229,11 @@ STRIPE_CURRENCY=usd
 MUX_TOKEN_ID=your-mux-id
 MUX_TOKEN_SECRET=your-mux-secret
 MUX_WEBHOOK_SECRET=your-mux-signing-secret
+# Signed playback (optional, enables Mux signing):
+MUX_SIGNING_KEY=your-mux-signing-key-id
+MUX_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----
+PLAYBACK_TTL_SECONDS=3600
+CORS_ORIGIN=*
 ```
 
 > **Security:** `.env` files are git-ignored. Never commit secrets.
@@ -264,9 +278,24 @@ cd android
 
 | Webhook | Payload | Validation | Effect |
 |---------|---------|------------|--------|
-| `POST /webhooks/stripe` | Stripe events (`payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`) | `stripe-signature` via `STRIPE_WEBHOOK_SECRET` | Records purchase (idempotent), invalidates cache, publishes `purchase:completed` on Redis |
-| `POST /webhooks/mux` | Mux events (`video.upload.asset_created`, `video.asset.ready`, `video.asset.errored`) | `mux-signature` via `MUX_WEBHOOK_SECRET` | Links asset ID, sets playback ID + thumbnail + duration |
-| `POST /webhooks/cleanup-expired` | — (internal/scheduler) | — | Marks expired rentals as `expired` |
+| `POST /webhooks/stripe` | Stripe events (`payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`) | `stripe-signature` via `STRIPE_WEBHOOK_SECRET` | Publishes `purchase:completed` / `purchase:refunded` on Redis |
+| `POST /webhooks/mux` | Mux events (`video.upload.asset_created`, `video.asset.ready`, `video.asset.errored`) | `mux-signature` via `MUX_WEBHOOK_SECRET` | Publishes `video:asset_created` / `video:asset.ready` on Redis |
+| `POST /webhooks/cleanup-expired` | — (internal/scheduler) | — | Publishes `rental:cleanup` |
+
+The webhook service is a **signature-verified event publisher** — it never touches the database. The **purchase service** consumes `purchase:completed`, records the purchase + a transactional outbox row (`purchase:recorded`) in one commit, then replays any unpublished outbox on startup.
+
+### Local Webhook Testing
+
+Sign and push synthetic provider events without real Stripe/Mux infrastructure:
+
+```bash
+# Boot the stack, then in another terminal:
+npm run mock:webhook -- --provider stripe --event payment_intent.succeeded --secret whsec_xxx
+npm run mock:webhook -- --provider mux --event video.asset.ready --secret mux_secret
+npm run mock:webhook -- --provider stripe --event charge.refunded --secret whsec_xxx --print   # print only
+```
+
+The harness signs `t=<ts>,v1=<hmac-sha256>` exactly like the providers. `--params` lets you override event data (e.g. the userId/videoId).
 
 ## 8 · API Specifications & Payloads
 
@@ -317,7 +346,7 @@ Creates a Stripe PaymentIntent for a video. The access entitlement is granted on
 
 ### Streaming
 
-- `GET /api/stream/playback/:playbackId` — Signed playback URL
+- `GET /api/stream/playback/:playbackId` — Playback URL, optionally **signed** when Mux signing is configured. Requires an active purchase on the video; the returned token expires in `min(PLAYBACK_TTL_SECONDS, remaining rental time)` — clients should re-fetch this endpoint when it expires. Response includes `expiresInSeconds` and `signed`.
 
 #### `POST /api/stream/upload-url`
 
@@ -353,6 +382,7 @@ Three service-specific schemas in PostgreSQL:
 - `video_service.videos` — Video metadata, Mux asset/playback IDs (nullable before upload)
 - `purchase_service.purchases` — Payment records, rental expiry (idempotent on `stripe_payment_intent_id`)
 - `auth_tokens.refresh_tokens` — Token rotation
+- `events.outbox` — Transactional outbox: domain events written atomically with their data, replayed on startup if unpublished
 
 ## 9 · Project Structure
 
@@ -360,16 +390,21 @@ Three service-specific schemas in PostgreSQL:
 streamz/
 ├── backend/
 │   ├── api-gateway/        # Request routing, JWT validation, rate limiting
-│   ├── migrations/         # SQL schema (idempotent)
+│   ├── migrations/         # SQL schema (idempotent, incl. events.outbox)
+│   ├── integration-tests/  # Testcontainers integration tests (Docker required)
+│   ├── scripts/            # Dev tooling (mock webhooks: `npm run mock:webhook`)
+│   ├── pgbouncer.ini       # Connection pooler config (docker-compose)
 │   ├── services/
 │   │   ├── auth/           # Registration, login, tokens
 │   │   ├── video/          # Catalog, search, access-aware listings
-│   │   ├── purchase/       # Stripe PaymentIntent, purchase history
-│   │   ├── streaming/      # Mux uploads, HLS playback
-│   │   └── webhook/        # Stripe + Mux webhook handlers (signature-verified)
-│   ├── shared/             # Shared types, schemas, errors (@streamz/shared)
+│   │   ├── purchase/       # Stripe PaymentIntent, purchase history, outbox publisher
+│   │   ├── streaming/      # Mux uploads, signed HLS playback, thumbnails
+│   │   └── webhook/        # Signature-verified Stripe + Mux event publisher
+│   ├── shared/             # Shared types, schemas, events, tracing (@streamz/shared)
 │   ├── Dockerfile
-│   └── docker-compose.yml
+│   └── docker-compose.yml  # postgres, redis, pgbouncer + all services
+├── helm/streamz/           # Kubernetes Helm chart (services, postgres, redis, ingress)
+├── k8s/README.md           # Build/push images + install instructions
 ├── ios/Streamz/
 │   ├── Models/             # Video, User, Purchase
 │   ├── Services/           # APIClient, AuthService, VideoService, etc.

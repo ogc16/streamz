@@ -23,6 +23,7 @@ import com.stripe.android.paymentsheet.PaymentSheetResult
 import com.streamz.app.data.repository.PurchaseRepository
 import com.streamz.app.ui.theme.*
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +34,7 @@ data class PurchaseUiState(
     val clientSecret: String? = null,
     val amount: Long = 0,
     val isLoading: Boolean = false,
+    val isConfirmingPayment: Boolean = false,
     val isComplete: Boolean = false,
     val error: String? = null
 )
@@ -64,11 +66,28 @@ class PurchaseViewModel @Inject constructor(
         }
     }
 
-    fun onPaymentResult(result: PaymentSheetResult, onSuccess: () -> Unit) {
+    fun onPaymentResult(result: PaymentSheetResult, videoId: String, onSuccess: () -> Unit) {
         when (result) {
             is PaymentSheetResult.Completed -> {
-                _uiState.value = _uiState.value.copy(isComplete = true)
-                onSuccess()
+                viewModelScope.launch {
+                    _uiState.value = _uiState.value.copy(isConfirmingPayment = true, error = null)
+                    var granted = false
+                    for (attempt in 0 until 10) {
+                        granted = runCatching { purchaseRepository.checkAccess(videoId).hasAccess }
+                            .getOrElse { false }
+                        if (granted) break
+                        delay(2_000)
+                    }
+                    _uiState.value = _uiState.value.copy(isConfirmingPayment = false)
+                    if (granted) {
+                        _uiState.value = _uiState.value.copy(isComplete = true)
+                        onSuccess()
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            error = "Payment received, but access is still being confirmed. Please check your Library shortly."
+                        )
+                    }
+                }
             }
             is PaymentSheetResult.Canceled -> {
                 _uiState.value = _uiState.value.copy(error = "Payment cancelled")
@@ -107,7 +126,7 @@ fun PurchaseScreen(
         val sheet = PaymentSheet(
             activity = context as android.app.Activity,
             paymentSheetResultCallback = { result ->
-                viewModel.onPaymentResult(result, onSuccess)
+                viewModel.onPaymentResult(result, videoId, onSuccess)
             }
         )
         paymentSheet = sheet
@@ -133,6 +152,23 @@ fun PurchaseScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "Preparing payment...",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = LightGray
+                            )
+                        }
+                    }
+                }
+
+                uiState.isConfirmingPayment -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = StreamzRed)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Confirming payment...",
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = LightGray
                             )

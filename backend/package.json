@@ -15,6 +15,7 @@
     "build": "tsc -p services/auth && tsc -p services/purchase && tsc -p services/webhook && tsc -p services/streaming && tsc -p services/video && tsc -p api-gateway",
     "start": "npm run start -w @streamz/api-gateway",
     "migrate": "ts-node migrations/run.ts",
+    "mock:webhook": "node scripts/mock-webhooks.mjs",
     "lint": "eslint services/**/*.ts api-gateway/**/*.ts"
   },
   "dependencies": {

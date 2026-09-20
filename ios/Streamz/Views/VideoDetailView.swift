@@ -11,7 +11,14 @@ struct VideoDetailView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if vm.isLoading {
+            if vm.isConfirmingPayment {
+                VStack(spacing: 12) {
+                    ProgressView().tint(.white)
+                    Text("Confirming payment...")
+                        .font(.subheadline)
+                        .foregroundColor(.gray)
+                }
+            } else if vm.isLoading {
                 ProgressView().tint(.white)
             } else if let video = vm.video {
                 ScrollView(.vertical, showsIndicators: false) {

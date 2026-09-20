@@ -13,6 +13,7 @@ final class VideoDetailViewModel: ObservableObject {
     @Published var showPaymentSheet = false
     @Published var paymentClientSecret: String?
     @Published var paymentAmount: Int?
+    @Published var isConfirmingPayment = false
     @Published var purchaseCompleted = false
 
     private let videoService = VideoService.shared
@@ -70,17 +71,36 @@ final class VideoDetailViewModel: ObservableObject {
 
     func paymentCompleted() async {
         showPaymentSheet = false
-        purchaseCompleted = true
-        guard let id = videoId else { return }
+        guard let id = videoId else {
+            purchaseCompleted = true
+            return
+        }
 
-        // Re-check access after payment
-        do {
-            let access = try await purchaseService.checkAccess(videoId: id)
-            accessCheck = access
-            // Reload video to get updated purchased status
-            video = try await videoService.fetchVideo(id: id)
-        } catch {
-            // Payment went through but refresh failed
+        // The webhook -> Redis -> purchase-service path is async; poll until
+        // access is granted so an interrupted checkout doesn't ghost the order.
+        isConfirmingPayment = true
+        var granted = false
+        for _ in 0..<10 {
+            do {
+                let access = try await purchaseService.checkAccess(videoId: id)
+                if access.hasAccess {
+                    granted = true
+                    break
+                }
+            } catch {
+                // transient network error; keep polling
+            }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        isConfirmingPayment = false
+
+        if granted {
+            accessCheck = try? await purchaseService.checkAccess(videoId: id)
+            video = try? await videoService.fetchVideo(id: id)
+            purchaseCompleted = true
+        } else {
+            errorMessage = "Payment received, but access is still being confirmed. Please check your Library shortly."
+            showError = true
         }
     }
 

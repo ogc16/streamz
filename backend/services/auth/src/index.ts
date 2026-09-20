@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
-import { registerSchema, loginSchema, JWTPayload, UserDTO } from '@streamz/shared'
+import { registerSchema, loginSchema, JWTPayload, requestIdMiddleware, UserDTO } from '@streamz/shared'
 
 dotenv.config()
 
@@ -27,6 +27,7 @@ const redis = new Redis({
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
 
+app.use(requestIdMiddleware())
 app.use(cors())
 app.use(express.json())
 
@@ -115,6 +116,8 @@ app.post('/api/auth/login', async (req, res) => {
     )
 
     if (result.rows.length === 0) {
+      // Equalize timing for non-existent vs. invalid-password attempts
+      await bcrypt.compare('invalid-password', '$2a$12$BArOt1Yrjn6mQsRU6FJhf.ZePt6ea/Q3cM4cGN.Zsk0phep/D5G7q')
       return res.status(401).json({ error: 'Invalid credentials' })
     }
 

@@ -1,0 +1,177 @@
+{{- $fullname := include "streamz.fullname" . }}
+{{- $dbUrl := printf "postgresql://%s:%s@%s-postgres:%s/%s" .Values.postgres.user .Values.postgres.password $fullname .Values.postgres.port .Values.postgres.db }}
+{{- if .Values.pgbouncer.enabled }}
+  {{- $dbUrl = printf "postgresql://%s:%s@%s-pgbouncer:6432/%s" .Values.postgres.user .Values.postgres.password $fullname .Values.postgres.db }}
+{{- end }}
+{{- range $name, $svc := .Values.services }}
+{{- if $svc.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    {{- include "streamz.labels" $ | nindent 4 }}
+    app: {{ $name }}
+spec:
+  replicas: {{ $.Values.replicas }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: "{{ $.Values.image.repository }}:{{ $svc.target }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ $svc.port }}
+              name: http
+          env:
+            - name: {{ upper $name }}_SERVICE_PORT
+              value: {{ $svc.port | quote }}
+            - name: DATABASE_URL
+              value: {{ $dbUrl | quote }}
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: REDIS_PORT
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: JWT_SECRET
+            {{- if eq $name "gateway" }}
+            - name: GATEWAY_PORT
+              value: {{ $svc.port | quote }}
+            - name: AUTH_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: AUTH_SERVICE_URL
+            - name: VIDEO_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: VIDEO_SERVICE_URL
+            - name: PURCHASE_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: PURCHASE_SERVICE_URL
+            - name: STREAMING_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: STREAMING_SERVICE_URL
+            - name: WEBHOOK_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $fullname }}-config
+                  key: WEBHOOK_SERVICE_URL
+            - name: CORS_ORIGIN
+              value: {{ $.Values.config.CORS_ORIGIN | quote }}
+            {{- end }}
+            {{- if eq $name "auth" }}
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: JWT_REFRESH_SECRET
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: STRIPE_SECRET_KEY
+            {{- end }}
+            {{- if eq $name "purchase" }}
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: STRIPE_SECRET_KEY
+            - name: STRIPE_CURRENCY
+              value: {{ $.Values.config.STRIPE_CURRENCY | quote }}
+            {{- end }}
+            {{- if eq $name "streaming" }}
+            - name: MUX_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_TOKEN_ID
+            - name: MUX_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_TOKEN_SECRET
+            - name: MUX_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_SIGNING_KEY
+            - name: MUX_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_PRIVATE_KEY
+            - name: PLAYBACK_TTL_SECONDS
+              value: {{ $.Values.config.PLAYBACK_TTL_SECONDS | quote }}
+            {{- end }}
+            {{- if eq $name "webhook" }}
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: STRIPE_SECRET_KEY
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: STRIPE_WEBHOOK_SECRET
+            - name: MUX_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_TOKEN_ID
+            - name: MUX_TOKEN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_TOKEN_SECRET
+            - name: MUX_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: MUX_WEBHOOK_SECRET
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ $svc.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    {{- include "streamz.labels" $ | nindent 4 }}
+spec:
+  type: {{ $.Values.service.type | default "ClusterIP" }}
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+      name: http
+  selector:
+    app: {{ $name }}
+{{- end }}
+{{- end }}

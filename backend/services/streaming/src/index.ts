@@ -5,12 +5,14 @@ import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import Mux from '@mux/mux-node'
 import { Redis } from 'ioredis'
-import { JWTPayload } from '@streamz/shared'
+import { JWTPayload, requestIdMiddleware, tracer } from '@streamz/shared'
 
 dotenv.config()
 
 const app = express()
 const PORT = process.env.STREAMING_SERVICE_PORT || 4004
+
+app.use(requestIdMiddleware())
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -49,12 +51,18 @@ function authMiddleware(req: any, res: any, next: any) {
   }
   try {
     const token = authHeader.split(' ')[1]
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, {
+      algorithms: ['HS256'],
+    }) as JWTPayload
     req.user = decoded
     next()
   } catch {
     res.status(401).json({ error: 'Invalid token' })
   }
+}
+
+function signingConfigured() {
+  return !!(process.env.MUX_SIGNING_KEY && process.env.MUX_PRIVATE_KEY)
 }
 
 app.post('/api/stream/upload-url', authMiddleware, async (req, res) => {
@@ -66,7 +74,7 @@ app.post('/api/stream/upload-url', authMiddleware, async (req, res) => {
 
     const upload = await mux.video.uploads.create({
       new_asset_settings: {
-        playback_policy: ['public'],
+        playback_policy: signingConfigured() ? ['signed'] : ['public'],
         mp4_support: 'none',
         normalize_audio: true,
       },
@@ -85,7 +93,7 @@ app.post('/api/stream/upload-url', authMiddleware, async (req, res) => {
       uploadId: upload.id,
     })
   } catch (error) {
-    console.error('Error creating upload URL:', error)
+    tracer.error(req.requestId, 'Error creating upload URL:', error)
     res.status(500).json({ error: 'Failed to create upload URL' })
   }
 })
@@ -134,7 +142,7 @@ app.post('/api/stream/upload-complete', authMiddleware, async (req, res) => {
       })
     }
   } catch (error) {
-    console.error('Error completing upload:', error)
+    tracer.error(req.requestId, 'Error completing upload:', error)
     res.status(500).json({ error: 'Failed to process upload' })
   }
 })
@@ -155,7 +163,7 @@ app.get('/api/stream/playback/:playbackId', authMiddleware, async (req, res) => 
     const videoId = videoResult.rows[0].id
 
     const purchaseResult = await pool.query(
-      `SELECT id FROM purchase_service.purchases
+      `SELECT expires_at FROM purchase_service.purchases
        WHERE user_id = $1 AND video_id = $2 AND status = 'completed'
        AND (expires_at IS NULL OR expires_at > NOW())
        LIMIT 1`,
@@ -166,14 +174,37 @@ app.get('/api/stream/playback/:playbackId', authMiddleware, async (req, res) => 
       return res.status(403).json({ error: 'No access. Please purchase this video.' })
     }
 
-    const playbackUrl = `https://stream.mux.com/${playbackId}.m3u8`
+    const remainingMs = purchaseResult.rows[0].expires_at
+      ? new Date(purchaseResult.rows[0].expires_at).getTime() - Date.now()
+      : null
+
+    const defaultTtl = Math.max(60, parseInt(process.env.PLAYBACK_TTL_SECONDS || '3600', 10))
+    let ttl = defaultTtl
+    if (remainingMs !== null) {
+      // Bound the signed URL lifetime to the exact remaining rental time
+      ttl = Math.max(60, Math.min(defaultTtl, Math.ceil(remainingMs / 1000)))
+    }
+
+    const signingOn = signingConfigured()
+    const basePlaybackUrl = `https://stream.mux.com/${playbackId}.m3u8`
+    let playbackUrl = basePlaybackUrl
+
+    if (signingOn) {
+      const token = await mux.jwt.signPlaybackId(playbackId, {
+        type: 'video',
+        expiration: `${ttl}s`,
+      })
+      playbackUrl = `${basePlaybackUrl}?token=${encodeURIComponent(token)}`
+    }
 
     res.json({
       playbackUrl,
       playbackId,
+      expiresInSeconds: ttl,
+      signed: signingOn,
     })
   } catch (error) {
-    console.error('Error getting playback URL:', error)
+    tracer.error(req.requestId, 'Error getting playback URL:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -183,17 +214,24 @@ app.post('/api/stream/thumbnail/:playbackId', authMiddleware, async (req, res) =
     const { playbackId } = req.params
     const { time = 0 } = req.body
 
-    const thumbnailUrl = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=${time}`
+    let thumbnailUrl = `https://image.mux.com/${playbackId}/thumbnail.jpg?time=${time}`
+    if (signingConfigured()) {
+      const token = await mux.jwt.signPlaybackId(playbackId, {
+        type: 'thumbnail',
+        expiration: `${Math.max(60, parseInt(process.env.PLAYBACK_TTL_SECONDS || '3600', 10))}s`,
+      })
+      thumbnailUrl = `${thumbnailUrl}&token=${encodeURIComponent(token)}`
+    }
 
     res.json({ thumbnailUrl })
   } catch (error) {
-    console.error('Error generating thumbnail:', error)
+    tracer.error(req.requestId, 'Error generating thumbnail:', error)
     res.status(500).json({ error: 'Failed to generate thumbnail' })
   }
 })
 
 app.listen(PORT, () => {
-  console.log(`Streaming service running on port ${PORT}`)
+  tracer.info(undefined, `Streaming service running on port ${PORT}`)
 })
 
 export { pool }

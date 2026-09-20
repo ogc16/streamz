@@ -5,12 +5,14 @@ import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { Redis } from 'ioredis'
-import { JWTPayload } from '@streamz/shared'
+import { JWTPayload, requestIdMiddleware, tracer } from '@streamz/shared'
 
 dotenv.config()
 
 const app = express()
 const PORT = process.env.GATEWAY_PORT || 3000
+
+app.use(requestIdMiddleware())
 
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
@@ -36,9 +38,9 @@ const PUBLIC_ROUTES = [
 ]
 
 app.use(cors({
-  origin: '*',
+  origin: process.env.CORS_ORIGIN || '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 }))
 
 app.use(rateLimit({
@@ -70,7 +72,9 @@ async function authMiddleware(req: any, _res: any, next: any) {
 
   try {
     const token = authHeader.split(' ')[1]
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, {
+      algorithms: ['HS256'],
+    }) as JWTPayload
 
     const session = await redis.get(`session:${decoded.userId}`)
     if (!session) {
@@ -104,12 +108,15 @@ Object.entries(SERVICE_MAP).forEach(([route, target]) => {
           if (req.headers['x-user-email']) {
             proxyReq.setHeader('x-user-email', req.headers['x-user-email'])
           }
+          if (req.requestId) {
+            proxyReq.setHeader('x-request-id', req.requestId)
+          }
         },
         proxyRes: (proxyRes) => {
           proxyRes.headers['x-powered-by'] = 'streamz-api-gateway'
         },
         error: (err, req, res: any) => {
-          console.error('Proxy error:', err.message)
+          tracer.error((req as any).requestId, 'Proxy error:', err.message)
           if (!res.headersSent) {
             res.status(502).json({
               error: 'Service unavailable',
@@ -126,14 +133,14 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Route not found' })
 })
 
-app.use((err: any, _req: any, res: any, _next: any) => {
-  console.error('Gateway error:', err)
+app.use((err: any, req: any, res: any, _next: any) => {
+  tracer.error(req.requestId, 'Gateway error:', err)
   res.status(500).json({ error: 'Internal gateway error' })
 })
 
 app.listen(PORT, () => {
-  console.log(`API Gateway running on port ${PORT}`)
-  console.log('Service routes:', SERVICE_MAP)
+  tracer.info(undefined, `API Gateway running on port ${PORT}`)
+  tracer.info(undefined, 'Service routes:', SERVICE_MAP)
 })
 
 export { app }

@@ -1,3 +1,5 @@
 export * from './types'
 export * from './schemas'
 export * from './errors'
+export * from './tracing'
+export * from './events'

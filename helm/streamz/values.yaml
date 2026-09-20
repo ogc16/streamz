@@ -1,0 +1,61 @@
+# Values for the Streamz backend Helm chart.
+
+image:
+  # Images are built per Dockerfile target (auth/video/purchase/streaming/webhook/gateway).
+  # Use the --target flag: docker build --target <service> -t streamz/backend:<service> .
+  repository: streamz/backend
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+services:
+  gateway:    { enabled: true,  port: 3000, target: gateway }
+  auth:       { enabled: true,  port: 4001, target: auth }
+  video:      { enabled: true,  port: 4002, target: video }
+  purchase:   { enabled: true,  port: 4003, target: purchase }
+  streaming:  { enabled: true,  port: 4004, target: streaming }
+  webhook:    { enabled: true,  port: 4005, target: webhook }
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  port: "5432"
+  db: streamz
+  user: streamz
+  # Override in production (values override or sealed secret)
+  password: streamz_secret
+  storage: 10Gi
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+
+pgbouncer:
+  enabled: false
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  className: nginx
+  host: streamz.example.com
+
+# Sensitive config. Provide in production via `--set secret.JWT_SECRET=...`
+# or a values override that sources from a secret store.
+secret:
+  JWT_SECRET: change-me
+  JWT_REFRESH_SECRET: change-me
+  STRIPE_SECRET_KEY: ""
+  STRIPE_WEBHOOK_SECRET: ""
+  MUX_TOKEN_ID: ""
+  MUX_TOKEN_SECRET: ""
+  MUX_WEBHOOK_SECRET: ""
+  MUX_SIGNING_KEY: ""
+  MUX_PRIVATE_KEY: ""
+
+config:
+  STRIPE_CURRENCY: usd
+  PLAYBACK_TTL_SECONDS: "3600"
+  CORS_ORIGIN: "*"

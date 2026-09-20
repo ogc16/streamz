@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import { Redis } from 'ioredis'
-import { createVideoSchema, JWTPayload, VideoDTO } from '@streamz/shared'
+import { createVideoSchema, JWTPayload, requestIdMiddleware, VideoDTO } from '@streamz/shared'
 
 dotenv.config()
 
@@ -21,6 +21,7 @@ const redis = new Redis({
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
 
+app.use(requestIdMiddleware())
 app.use(cors())
 app.use(express.json())
 
@@ -32,7 +33,9 @@ function authMiddleware(req: any, res: any, next: any) {
 
   try {
     const token = authHeader.split(' ')[1]
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!, {
+      algorithms: ['HS256'],
+    }) as JWTPayload
     req.user = decoded
     next()
   } catch {
@@ -104,7 +107,10 @@ app.get('/api/videos', authMiddleware, async (req, res) => {
     const sortColumn = allowedSorts.includes(sort as string) ? sort : 'created_at'
     const sortOrder = order === 'asc' ? 'ASC' : 'DESC'
 
-    const offset = (parseInt(page as string) - 1) * parseInt(limit as string)
+    const pageNum = Math.max(1, parseInt(page as string) || 1)
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 20))
+
+    const offset = (pageNum - 1) * limitNum
 
     const countResult = await pool.query(
       `SELECT COUNT(*) FROM video_service.videos v ${whereClause}`,
@@ -116,7 +122,7 @@ app.get('/api/videos', authMiddleware, async (req, res) => {
        ${whereClause}
        ORDER BY v.${sortColumn} ${sortOrder}, v.id
        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
-      [...params, parseInt(limit as string), offset]
+      [...params, limitNum, offset]
     )
 
     // Check which videos the user has purchased
@@ -137,8 +143,8 @@ app.get('/api/videos', authMiddleware, async (req, res) => {
         purchased: purchasedIds.has(v.id),
       })),
       total: parseInt(countResult.rows[0].count),
-      page: parseInt(page as string),
-      limit: parseInt(limit as string),
+      page: pageNum,
+      limit: limitNum,
     }
 
     await redis.setex(cacheKey, 60, JSON.stringify(response))

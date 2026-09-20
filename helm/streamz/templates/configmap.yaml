@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "streamz.fullname" . }}-config
+  labels:
+    {{- include "streamz.labels" . | nindent 4 }}
+data:
+  AUTH_SERVICE_URL: http://{{ include "streamz.fullname" . }}-auth:4001
+  VIDEO_SERVICE_URL: http://{{ include "streamz.fullname" . }}-video:4002
+  PURCHASE_SERVICE_URL: http://{{ include "streamz.fullname" . }}-purchase:4003
+  STREAMING_SERVICE_URL: http://{{ include "streamz.fullname" . }}-streaming:4004
+  WEBHOOK_SERVICE_URL: http://{{ include "streamz.fullname" . }}-webhook:4005
+  REDIS_HOST: {{ include "streamz.fullname" . }}-redis
+  REDIS_PORT: "6379"
+  POSTGRES_HOST: {{ include "streamz.fullname" . }}-postgres
+  POSTGRES_PORT: "5432"
+  STRIPE_CURRENCY: {{ .Values.config.STRIPE_CURRENCY | quote }}
+  PLAYBACK_TTL_SECONDS: {{ .Values.config.PLAYBACK_TTL_SECONDS | quote }}
+  CORS_ORIGIN: {{ .Values.config.CORS_ORIGIN | quote }}
