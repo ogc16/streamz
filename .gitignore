@@ -115,6 +115,6 @@ coverage/
 *.tar.gz
 
 # ===========================
-# OpenCode
+# OpenCode (local AI tooling)
 # ===========================
-.opencode/plan
+.opencode/
