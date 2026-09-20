@@ -17,6 +17,122 @@ A Netflix/Hulu-style pay-per-view video streaming app with native iOS (SwiftUI) 
 
 **Stack:** Node.js, Express, TypeScript, PostgreSQL, Redis, Stripe, Mux
 
+### System Diagram
+
+```mermaid
+flowchart TD
+
+subgraph group_clients["Mobile Clients"]
+  node_android_app["Android App<br/>[MainActivity.kt]"]
+  node_ios_app["iOS App<br/>[StreamzApp.swift]"]
+  node_android_auth["Android Auth<br/>[AuthViewModel.kt]"]
+  node_ios_auth["iOS Auth"]
+  node_android_tokens["Android Tokens<br/>[TokenManager.kt]"]
+  node_ios_keychain["iOS Keychain"]
+  node_android_catalog["Android Catalog<br/>[HomeViewModel.kt]"]
+  node_ios_catalog["iOS Catalog"]
+  node_android_video_data["Android Video Data<br/>[VideoRepository.kt]"]
+  node_ios_video_data["iOS Video Data<br/>[VideoService.swift]"]
+  node_purchase_ui["Purchase UI<br/>[PurchaseScreen.kt]"]
+  node_purchase_data["Purchase Data"]
+  node_android_player["Android Player<br/>[PlayerScreen.kt]"]
+  node_ios_player["iOS Player<br/>[PlayerView.swift]"]
+  node_android_transport["Android Transport<br/>[ApiClient.kt]"]
+  node_ios_transport["iOS Transport<br/>[APIClient.swift]"]
+end
+
+subgraph group_edge["API Edge"]
+  node_gateway["API Gateway<br/>[index.ts]"]
+end
+
+subgraph group_domains["Domain Services"]
+  node_auth_service["Auth Service<br/>[index.ts]"]
+  node_video_service["Video Service<br/>[index.ts]"]
+  node_purchase_service["Purchase Service<br/>[index.ts]"]
+  node_streaming_service["Streaming Service<br/>[index.ts]"]
+  node_webhook_service["Webhook Service<br/>[index.ts]"]
+end
+
+subgraph group_infra["Media And Data"]
+  node_postgres[("PostgreSQL")]
+  node_redis[("Redis")]
+  node_stripe["Stripe"]
+  node_mux["Mux"]
+end
+
+node_viewer(("Viewer"))
+
+node_viewer -->|"uses"| node_android_app
+node_viewer -->|"uses"| node_ios_app
+node_android_app -->|"restores session"| node_android_auth
+node_android_auth -->|"calls auth API"| node_android_transport
+node_android_auth -->|"stores tokens"| node_android_tokens
+node_ios_auth -->|"calls auth API"| node_ios_transport
+node_ios_transport -->|"stores tokens"| node_ios_keychain
+node_android_catalog -->|"loads catalog"| node_android_video_data
+node_android_video_data -->|"requests videos"| node_android_transport
+node_ios_catalog -->|"loads catalog"| node_ios_video_data
+node_ios_video_data -->|"requests videos"| node_ios_transport
+node_purchase_ui -->|"starts purchase"| node_purchase_data
+node_purchase_data -->|"requests payment"| node_android_transport
+node_purchase_ui -.->|"presents payment"| node_stripe
+node_android_player -->|"requests playback"| node_android_transport
+node_ios_player -->|"requests playback"| node_ios_transport
+node_android_transport -->|"sends requests"| node_gateway
+node_ios_transport -->|"sends requests"| node_gateway
+node_gateway -->|"routes auth"| node_auth_service
+node_gateway -->|"routes videos"| node_video_service
+node_gateway -->|"routes purchases"| node_purchase_service
+node_gateway -->|"routes playback"| node_streaming_service
+node_gateway -.->|"checks sessions"| node_redis
+node_auth_service -->|"stores accounts"| node_postgres
+node_auth_service -->|"stores sessions"| node_redis
+node_video_service -->|"reads catalog"| node_postgres
+node_purchase_service -->|"creates intents"| node_stripe
+node_purchase_service -->|"stores purchases"| node_postgres
+node_streaming_service -->|"gets media URLs"| node_mux
+node_webhook_service -->|"caches / publishes"| node_redis
+node_stripe -->|"sends payment events"| node_webhook_service
+node_mux -->|"sends asset events"| node_webhook_service
+node_webhook_service -->|"records events"| node_postgres
+node_webhook_service -->|"updates assets"| node_video_service
+
+click node_android_app "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/MainActivity.kt"
+click node_ios_app "https://github.com/ogc16/streamz/blob/master/ios/Streamz/StreamzApp.swift"
+click node_android_auth "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/ui/auth/AuthViewModel.kt"
+click node_ios_auth "https://github.com/ogc16/streamz/blob/master/ios/Streamz/ViewModels/AuthViewModel.swift"
+click node_android_tokens "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/data/local/TokenManager.kt"
+click node_ios_keychain "https://github.com/ogc16/streamz/blob/master/ios/Streamz/Helpers/KeychainManager.swift"
+click node_android_catalog "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/ui/home/HomeViewModel.kt"
+click node_ios_catalog "https://github.com/ogc16/streamz/blob/master/ios/Streamz/ViewModels/HomeViewModel.swift"
+click node_android_video_data "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/data/repository/VideoRepository.kt"
+click node_ios_video_data "https://github.com/ogc16/streamz/blob/master/ios/Streamz/Services/VideoService.swift"
+click node_purchase_ui "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/ui/purchase/PurchaseScreen.kt"
+click node_purchase_data "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/data/repository/PurchaseRepository.kt"
+click node_android_player "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/ui/player/PlayerScreen.kt"
+click node_ios_player "https://github.com/ogc16/streamz/blob/master/ios/Streamz/Views/PlayerView.swift"
+click node_android_transport "https://github.com/ogc16/streamz/blob/master/android/app/src/main/java/com/streamz/app/data/remote/ApiClient.kt"
+click node_ios_transport "https://github.com/ogc16/streamz/blob/master/ios/Streamz/Services/APIClient.swift"
+click node_gateway "https://github.com/ogc16/streamz/blob/master/backend/api-gateway/src/index.ts"
+click node_auth_service "https://github.com/ogc16/streamz/blob/master/backend/services/auth/src/index.ts"
+click node_video_service "https://github.com/ogc16/streamz/blob/master/backend/services/video/src/index.ts"
+click node_purchase_service "https://github.com/ogc16/streamz/blob/master/backend/services/purchase/src/index.ts"
+click node_streaming_service "https://github.com/ogc16/streamz/blob/master/backend/services/streaming/src/index.ts"
+click node_webhook_service "https://github.com/ogc16/streamz/blob/master/backend/services/webhook/src/index.ts"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_android_app,node_ios_app,node_android_auth,node_ios_auth,node_android_tokens,node_ios_keychain,node_android_catalog,node_ios_catalog,node_android_video_data,node_ios_video_data,node_purchase_ui,node_purchase_data,node_android_player,node_ios_player,node_android_transport,node_ios_transport,node_viewer toneBlue
+class node_gateway toneAmber
+class node_auth_service,node_video_service,node_purchase_service,node_streaming_service,node_webhook_service toneMint
+class node_postgres,node_stripe,node_mux,node_redis toneRose
+```
+
 ### iOS App
 
 **Stack:** Swift 5, SwiftUI, AVPlayer, StripePaymentSheet SDK
