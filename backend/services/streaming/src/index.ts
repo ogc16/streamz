@@ -15,6 +15,9 @@ import {
   gracefulShutdown,
   initLogging,
   initTelemetry,
+  MetricsRegistry,
+  metricsHandler,
+  httpMetricsMiddleware,
 } from '@streamz/shared'
 
 dotenv.config()
@@ -57,6 +60,11 @@ async function clearVideoCache(redisClient: Redis) {
 applySecurity(app)
 app.use(cors())
 app.use(secureJsonParser({ limit: '512kb' }))
+
+const registry = new MetricsRegistry()
+app.use(httpMetricsMiddleware(registry, 'streaming'))
+app.get('/metrics', metricsHandler(registry))
+
 app.use(
   healthRouter('streaming', [
     {

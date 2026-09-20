@@ -22,6 +22,10 @@ import {
   gracefulShutdown,
   initLogging,
   initTelemetry,
+  MetricsRegistry,
+  metricsHandler,
+  httpMetricsMiddleware,
+  withRetry,
 } from '@streamz/shared'
 
 dotenv.config()
@@ -55,6 +59,11 @@ applySecurity(app)
 app.use(cors())
 app.use(secureJsonParser({ limit: '256kb' }))
 app.use(requestIdMiddleware())
+
+const registry = new MetricsRegistry()
+app.use(httpMetricsMiddleware(registry, 'purchase'))
+app.get('/metrics', metricsHandler(registry))
+
 app.use(
   healthRouter('purchase', [
     {
@@ -73,10 +82,15 @@ app.use(
 )
 
 async function publishOutboxRow(outboxId: string, channel: string, payload: object) {
-  await redis.publish(channel, JSON.stringify(payload))
-  await pool.query(
-    `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
-    [outboxId]
+  await withRetry(
+    async () => {
+      await redis.publish(channel, JSON.stringify(payload))
+      await pool.query(
+        `UPDATE events.outbox SET published_at = NOW() WHERE id = $1`,
+        [outboxId]
+      )
+    },
+    { attempts: 3, baseDelayMs: 100, label: `outbox publish ${channel}` }
   )
 }
 
@@ -106,31 +120,45 @@ redisSub.on('message', async (channel, message) => {
         }
         const client = await pool.connect()
         try {
-          await client.query('BEGIN')
-          await client.query(
-            `INSERT INTO purchase_service.purchases
-             (user_id, video_id, stripe_payment_intent_id, type, amount_cents, status, expires_at)
-             VALUES ($1, $2, $3, $4, $5, 'completed', $6)
-             ON CONFLICT (stripe_payment_intent_id) DO NOTHING`,
-            [
-              event.userId,
-              event.videoId,
-              event.paymentIntentId,
-              event.purchaseType,
-              event.amountCents,
-              event.expiresAt,
-            ]
-          )
-          const outbox = await client.query(
-            `INSERT INTO events.outbox (channel, payload)
-             VALUES ($1, $2)
-             RETURNING id`,
-            [EVENTS.PURCHASE_RECORDED, JSON.stringify(outboxPayload)]
-          )
-          await client.query('COMMIT')
-          await publishOutboxRow(outbox.rows[0].id, EVENTS.PURCHASE_RECORDED, outboxPayload)
+          await withRetry(
+            async () => {
+              await client.query('BEGIN')
+              await client.query(
+                `INSERT INTO purchase_service.purchases
+                 (user_id, video_id, stripe_payment_intent_id, type, amount_cents, status, expires_at)
+                 VALUES ($1, $2, $3, $4, $5, 'completed', $6)
+                 ON CONFLICT (stripe_payment_intent_id) DO NOTHING`,
+                [
+                  event.userId,
+                  event.videoId,
+                  event.paymentIntentId,
+                  event.purchaseType,
+                  event.amountCents,
+                  event.expiresAt,
+                ]
+              )
+              const outbox = await client.query(
+                `INSERT INTO events.outbox (channel, payload)
+                 VALUES ($1, $2)
+                 RETURNING id`,
+                [EVENTS.PURCHASE_RECORDED, JSON.stringify(outboxPayload)]
+              )
+              await client.query('COMMIT')
+              return outbox
+            },
+            {
+              attempts: 3,
+              baseDelayMs: 150,
+              maxDelayMs: 1500,
+              label: `purchase+outbox tx ${event.paymentIntentId}`,
+            }
+          ).then((outbox) => publishOutboxRow(outbox.rows[0].id, EVENTS.PURCHASE_RECORDED, outboxPayload))
         } catch (txError) {
-          await client.query('ROLLBACK')
+          try {
+            await client.query('ROLLBACK')
+          } catch {
+            // connection may be unusable after the failure; original error wins
+          }
           throw txError
         } finally {
           client.release()

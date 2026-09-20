@@ -16,6 +16,9 @@ import {
   gracefulShutdown,
   initLogging,
   initTelemetry,
+  MetricsRegistry,
+  metricsHandler,
+  httpMetricsMiddleware,
 } from '@streamz/shared'
 
 const app = express()
@@ -42,6 +45,11 @@ const redis = new Redis({
 
 app.use(requestIdMiddleware())
 applySecurity(app)
+
+const registry = new MetricsRegistry()
+app.use(httpMetricsMiddleware(registry, 'webhook'))
+app.get('/metrics', metricsHandler(registry))
+
 app.use(
   healthRouter('webhook', [
     {

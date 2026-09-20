@@ -19,6 +19,9 @@ import {
   tracer,
   initLogging,
   initTelemetry,
+  MetricsRegistry,
+  metricsHandler,
+  httpMetricsMiddleware,
 } from '@streamz/shared'
 
 dotenv.config()
@@ -47,6 +50,11 @@ applySecurity(app)
 app.use(requestIdMiddleware())
 app.use(cors())
 app.use(secureJsonParser({ limit: '256kb' }))
+
+const registry = new MetricsRegistry()
+app.use(httpMetricsMiddleware(registry, 'auth'))
+app.get('/metrics', metricsHandler(registry))
+
 app.use(
   healthRouter('auth', [
     {
