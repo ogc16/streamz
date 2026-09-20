@@ -11,12 +11,20 @@ import {
   VideoAssetReadyEvent,
   requestIdMiddleware,
   tracer,
+  applySecurity,
+  healthRouter,
+  gracefulShutdown,
+  initLogging,
+  initTelemetry,
 } from '@streamz/shared'
 
 const app = express()
 
 dotenv.config()
 const PORT = process.env.WEBHOOK_SERVICE_PORT || 4005
+
+initLogging('webhook')
+initTelemetry('webhook')
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
@@ -33,6 +41,17 @@ const redis = new Redis({
 })
 
 app.use(requestIdMiddleware())
+applySecurity(app)
+app.use(
+  healthRouter('webhook', [
+    {
+      name: 'redis',
+      check: async () => {
+        await redis.ping()
+      },
+    },
+  ])
+)
 
 function publish(channel: string, payload: object) {
   return redis.publish(channel, JSON.stringify(payload))
@@ -169,6 +188,14 @@ app.post('/webhooks/cleanup-expired', async (_req, res) => {
   }
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   tracer.info(undefined, `Webhook service running on port ${PORT}`)
+})
+
+gracefulShutdown({
+  service: 'webhook',
+  server,
+  shutdown: async () => {
+    await redis.quit()
+  },
 })

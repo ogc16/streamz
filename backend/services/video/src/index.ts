@@ -4,9 +4,24 @@ import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import { Redis } from 'ioredis'
-import { createVideoSchema, JWTPayload, requestIdMiddleware, VideoDTO } from '@streamz/shared'
+import {
+  createVideoSchema,
+  JWTPayload,
+  requestIdMiddleware,
+  VideoDTO,
+  applySecurity,
+  secureJsonParser,
+  healthRouter,
+  gracefulShutdown,
+  tracer,
+  initLogging,
+  initTelemetry,
+} from '@streamz/shared'
 
 dotenv.config()
+
+initLogging('video')
+initTelemetry('video')
 
 const app = express()
 const PORT = process.env.VIDEO_SERVICE_PORT || 4002
@@ -21,9 +36,26 @@ const redis = new Redis({
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
 
+applySecurity(app)
 app.use(requestIdMiddleware())
 app.use(cors())
-app.use(express.json())
+app.use(secureJsonParser({ limit: '256kb' }))
+app.use(
+  healthRouter('video', [
+    {
+      name: 'postgres',
+      check: async () => {
+        await pool.query('SELECT 1')
+      },
+    },
+    {
+      name: 'redis',
+      check: async () => {
+        await redis.ping()
+      },
+    },
+  ])
+)
 
 function authMiddleware(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization
@@ -250,7 +282,7 @@ app.get('/api/videos/:id', authMiddleware, async (req, res) => {
       purchaseType,
     })
   } catch (error) {
-    console.error('Error fetching video:', error)
+    tracer.error(req.requestId, 'Error fetching video:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -291,13 +323,22 @@ app.post('/api/videos', authMiddleware, async (req, res) => {
     if (error.name === 'ZodError') {
       return res.status(400).json({ error: error.errors })
     }
-    console.error('Error creating video:', error)
+    tracer.error(req.requestId, 'Error creating video:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
 
-app.listen(PORT, () => {
-  console.log(`Video service running on port ${PORT}`)
+const server = app.listen(PORT, () => {
+  tracer.info(undefined, `Video service running on port ${PORT}`)
+})
+
+gracefulShutdown({
+  service: 'video',
+  server,
+  shutdown: async () => {
+    await pool.end()
+    await redis.quit()
+  },
 })
 
 export { pool }

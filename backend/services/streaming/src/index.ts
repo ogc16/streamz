@@ -5,9 +5,22 @@ import { Pool } from 'pg'
 import jwt from 'jsonwebtoken'
 import Mux from '@mux/mux-node'
 import { Redis } from 'ioredis'
-import { JWTPayload, requestIdMiddleware, tracer } from '@streamz/shared'
+import {
+  JWTPayload,
+  requestIdMiddleware,
+  tracer,
+  applySecurity,
+  secureJsonParser,
+  healthRouter,
+  gracefulShutdown,
+  initLogging,
+  initTelemetry,
+} from '@streamz/shared'
 
 dotenv.config()
+
+initLogging('streaming')
+initTelemetry('streaming')
 
 const app = express()
 const PORT = process.env.STREAMING_SERVICE_PORT || 4004
@@ -41,8 +54,33 @@ async function clearVideoCache(redisClient: Redis) {
   }
 }
 
+applySecurity(app)
 app.use(cors())
-app.use(express.json({ limit: '50mb' }))
+app.use(secureJsonParser({ limit: '512kb' }))
+app.use(
+  healthRouter('streaming', [
+    {
+      name: 'postgres',
+      check: async () => {
+        await pool.query('SELECT 1')
+      },
+    },
+    {
+      name: 'redis',
+      check: async () => {
+        await redis.ping()
+      },
+    },
+    {
+      name: 'mux',
+      check: async () => {
+        if (!(process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET)) {
+          throw new Error('mux credentials not configured')
+        }
+      },
+    },
+  ])
+)
 
 function authMiddleware(req: any, res: any, next: any) {
   const authHeader = req.headers.authorization
@@ -230,8 +268,17 @@ app.post('/api/stream/thumbnail/:playbackId', authMiddleware, async (req, res) =
   }
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   tracer.info(undefined, `Streaming service running on port ${PORT}`)
+})
+
+gracefulShutdown({
+  service: 'streaming',
+  server,
+  shutdown: async () => {
+    await pool.end()
+    await redis.quit()
+  },
 })
 
 export { pool }

@@ -6,9 +6,25 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
-import { registerSchema, loginSchema, JWTPayload, requestIdMiddleware, UserDTO } from '@streamz/shared'
+import {
+  registerSchema,
+  loginSchema,
+  JWTPayload,
+  requestIdMiddleware,
+  UserDTO,
+  applySecurity,
+  secureJsonParser,
+  healthRouter,
+  gracefulShutdown,
+  tracer,
+  initLogging,
+  initTelemetry,
+} from '@streamz/shared'
 
 dotenv.config()
+
+initLogging('auth')
+initTelemetry('auth')
 
 const app = express()
 const PORT = process.env.AUTH_SERVICE_PORT || 4001
@@ -27,9 +43,26 @@ const redis = new Redis({
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
 
+applySecurity(app)
 app.use(requestIdMiddleware())
 app.use(cors())
-app.use(express.json())
+app.use(secureJsonParser({ limit: '256kb' }))
+app.use(
+  healthRouter('auth', [
+    {
+      name: 'postgres',
+      check: async () => {
+        await pool.query('SELECT 1')
+      },
+    },
+    {
+      name: 'redis',
+      check: async () => {
+        await redis.ping()
+      },
+    },
+  ])
+)
 
 function generateTokens(payload: JWTPayload) {
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET!, {
@@ -101,7 +134,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (error.name === 'ZodError') {
       return res.status(400).json({ error: error.errors })
     }
-    console.error('Registration error:', error)
+    tracer.error(req.requestId, 'Registration error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -144,7 +177,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (error.name === 'ZodError') {
       return res.status(400).json({ error: error.errors })
     }
-    console.error('Login error:', error)
+    tracer.error(req.requestId, 'Login error:', error)
     res.status(500).json({ error: 'Internal server error' })
   }
 })
@@ -218,8 +251,17 @@ app.get('/api/auth/me', async (req, res) => {
   }
 })
 
-app.listen(PORT, () => {
-  console.log(`Auth service running on port ${PORT}`)
+const server = app.listen(PORT, () => {
+  tracer.info(undefined, `Auth service running on port ${PORT}`)
+})
+
+gracefulShutdown({
+  service: 'auth',
+  server,
+  shutdown: async () => {
+    await pool.end()
+    await redis.quit()
+  },
 })
 
 export { pool, redis }

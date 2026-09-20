@@ -16,9 +16,18 @@ import {
   PurchaseRefundedEvent,
   requestIdMiddleware,
   tracer,
+  applySecurity,
+  secureJsonParser,
+  healthRouter,
+  gracefulShutdown,
+  initLogging,
+  initTelemetry,
 } from '@streamz/shared'
 
 dotenv.config()
+
+initLogging('purchase')
+initTelemetry('purchase')
 
 const app = express()
 const PORT = process.env.PURCHASE_SERVICE_PORT || 4003
@@ -42,9 +51,26 @@ const redisSub = new Redis({
   port: parseInt(process.env.REDIS_PORT || '6379'),
 })
 
+applySecurity(app)
 app.use(cors())
-app.use(express.json())
+app.use(secureJsonParser({ limit: '256kb' }))
 app.use(requestIdMiddleware())
+app.use(
+  healthRouter('purchase', [
+    {
+      name: 'postgres',
+      check: async () => {
+        await pool.query('SELECT 1')
+      },
+    },
+    {
+      name: 'redis',
+      check: async () => {
+        await redis.ping()
+      },
+    },
+  ])
+)
 
 async function publishOutboxRow(outboxId: string, channel: string, payload: object) {
   await redis.publish(channel, JSON.stringify(payload))
@@ -321,8 +347,18 @@ replayOutbox().catch((error) => {
   tracer.error(undefined, 'Initial outbox replay failed:', error)
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   tracer.info(undefined, `Purchase service running on port ${PORT}`)
+})
+
+gracefulShutdown({
+  service: 'purchase',
+  server,
+  shutdown: async () => {
+    await pool.end()
+    await redis.quit()
+    await redisSub.quit()
+  },
 })
 
 export { pool, stripe }

@@ -5,14 +5,33 @@ import rateLimit from 'express-rate-limit'
 import jwt from 'jsonwebtoken'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { Redis } from 'ioredis'
-import { JWTPayload, requestIdMiddleware, tracer } from '@streamz/shared'
+import {
+  JWTPayload,
+  requestIdMiddleware,
+  tracer,
+  applySecurity,
+  MetricsRegistry,
+  metricsHandler,
+  httpMetricsMiddleware,
+  initLogging,
+  initTelemetry,
+  gracefulShutdown,
+  healthRouter,
+} from '@streamz/shared'
 
 dotenv.config()
+
+initLogging('api-gateway')
+initTelemetry('api-gateway')
 
 const app = express()
 const PORT = process.env.GATEWAY_PORT || 3000
 
+applySecurity(app)
 app.use(requestIdMiddleware())
+
+const registry = new MetricsRegistry()
+app.use(httpMetricsMiddleware(registry, 'gateway'))
 
 const redis = new Redis({
   host: process.env.REDIS_HOST || 'localhost',
@@ -35,6 +54,7 @@ const PUBLIC_ROUTES = [
   '/webhooks/mux',
   '/webhooks/cleanup-expired',
   '/health',
+  '/metrics',
 ]
 
 app.use(cors({
@@ -51,13 +71,19 @@ app.use(rateLimit({
   message: { error: 'Too many requests, please try again later' },
 }))
 
-app.use('/health', (_req, res) => {
-  res.json({
-    service: 'streamz-api-gateway',
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-  })
-})
+app.use(
+  healthRouter('streamz-api-gateway', [
+    {
+      name: 'redis',
+      check: async () => {
+        const pong = await redis.ping()
+        if (pong !== 'PONG') throw new Error('redis not reachable')
+      },
+    },
+  ])
+)
+
+app.get('/metrics', metricsHandler(registry))
 
 async function authMiddleware(req: any, _res: any, next: any) {
   const isPublic = PUBLIC_ROUTES.some(route => req.path.startsWith(route))
@@ -138,9 +164,17 @@ app.use((err: any, req: any, res: any, _next: any) => {
   res.status(500).json({ error: 'Internal gateway error' })
 })
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   tracer.info(undefined, `API Gateway running on port ${PORT}`)
   tracer.info(undefined, 'Service routes:', SERVICE_MAP)
+})
+
+gracefulShutdown({
+  service: 'api-gateway',
+  server,
+  shutdown: async () => {
+    await redis.quit()
+  },
 })
 
 export { app }
