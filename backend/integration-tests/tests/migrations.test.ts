@@ -3,17 +3,27 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from 'pg'
-import { PostgreSqlContainer, StartedPostgreSqlContainer } from 'testcontainers'
+import { GenericContainer, StartedTestContainer, Wait } from 'testcontainers'
 
 const migrationsDir = join(__dirname, '..', '..', 'migrations')
 
 describe('database migrations', () => {
-  let pg: StartedPostgreSqlContainer
+  let pg: StartedTestContainer
   let client: Client
 
   before(async () => {
-    pg = await new PostgreSqlContainer('postgres:16-alpine').start()
-    client = new Client({ connectionString: pg.getConnectionUri() })
+    pg = await new GenericContainer('postgres:16-alpine')
+      .withEnvironment({
+        POSTGRES_DB: 'streamz',
+        POSTGRES_USER: 'streamz',
+        POSTGRES_PASSWORD: 'streamz_secret',
+      })
+      .withExposedPorts(5432)
+      .withWaitStrategy(Wait.forLogMessage('ready to accept connections', 2))
+      .start()
+    client = new Client({
+      connectionString: `postgresql://streamz:streamz_secret@127.0.0.1:${pg.getMappedPort(5432)}/streamz`,
+    })
     await client.connect()
   })
 

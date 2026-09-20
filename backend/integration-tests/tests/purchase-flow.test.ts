@@ -6,12 +6,7 @@ import { Client } from 'pg'
 import Redis from 'ioredis'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  PostgreSqlContainer,
-  RedisContainer,
-  StartedPostgreSqlContainer,
-  StartedRedisContainer,
-} from 'testcontainers'
+import { GenericContainer, StartedTestContainer, Wait } from 'testcontainers'
 
 const migrationsDir = join(__dirname, '..', '..', 'migrations')
 const servicesDir = join(__dirname, '..', '..', 'services')
@@ -19,6 +14,10 @@ const servicesDir = join(__dirname, '..', '..', 'services')
 const WEBHOOK_PORT = 4105
 const JWT_SECRET = 'integration-test-jwt-secret'
 const WEBHOOK_SECRET = 'whsec_integration_test'
+
+const USER_ID = '00000000-0000-4000-8000-000000000001'
+const VIDEO_ID = '00000000-0000-4000-8000-000000000002'
+const PAYMENT_INTENT_ID = 'pi_integration_001'
 
 function signWebhook(body: string, timestamp: number, secret: string): string {
   const sig = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex')
@@ -40,18 +39,31 @@ async function waitForHttp(url: string, timeoutMs = 30_000): Promise<void> {
 }
 
 describe('webhook -> purchase pipeline', () => {
-  let pg: StartedPostgreSqlContainer
-  let redis: StartedRedisContainer
+  let pg: StartedTestContainer
+  let redis: StartedTestContainer
   let dbClient: Client
   let redisClient: Redis
   let webhook: ChildProcess
   let purchase: ChildProcess
 
   before(async () => {
-    pg = await new PostgreSqlContainer('postgres:16-alpine').start()
-    redis = await new RedisContainer('redis:7-alpine').start()
+    pg = await new GenericContainer('postgres:16-alpine')
+      .withEnvironment({
+        POSTGRES_DB: 'streamz',
+        POSTGRES_USER: 'streamz',
+        POSTGRES_PASSWORD: 'streamz_secret',
+      })
+      .withExposedPorts(5432)
+      .withWaitStrategy(Wait.forLogMessage('ready to accept connections', 2))
+      .start()
+    redis = await new GenericContainer('redis:7-alpine')
+      .withExposedPorts(6379)
+      .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
+      .start()
 
-    const db = new Client({ connectionString: pg.getConnectionUri() })
+    const connectionString = `postgresql://streamz:streamz_secret@127.0.0.1:${pg.getMappedPort(5432)}/streamz`
+
+    const db = new Client({ connectionString })
     await db.connect()
     const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()
     for (const file of files) {
@@ -59,15 +71,28 @@ describe('webhook -> purchase pipeline', () => {
     }
     await db.end()
 
-    dbClient = new Client({ connectionString: pg.getConnectionUri() })
+    dbClient = new Client({ connectionString })
     await dbClient.connect()
-    redisClient = new Redis(redis.getConnectionUrl())
+    redisClient = new Redis({ host: '127.0.0.1', port: redis.getMappedPort(6379) })
+
+    // Seed FK dependencies referenced by the purchase write
+    await dbClient.query(
+      `INSERT INTO auth_service.users (id, email, name, password_hash)
+       VALUES ($1, $2, $3, $4)`,
+      [USER_ID, 'integration@example.com', 'Integration User', '$2a$12$not-a-real-hash']
+    )
+    await dbClient.query(
+      `INSERT INTO video_service.videos
+         (id, title, description, price_cents, genre, release_year, rating, purchase_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [VIDEO_ID, 'Integration Test Film', 'Test fixture', 1999, 'test', 2026, 'PG', 'both']
+    )
 
     const baseEnv = {
       JWT_SECRET,
       REDIS_HOST: '127.0.0.1',
       REDIS_PORT: String(redis.getMappedPort(6379)),
-      DATABASE_URL: pg.getConnectionUri(),
+      DATABASE_URL: connectionString,
     }
 
     webhook = spawn(
@@ -79,10 +104,15 @@ describe('webhook -> purchase pipeline', () => {
           WEBHOOK_SERVICE_PORT: String(WEBHOOK_PORT),
           STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
           MUX_WEBHOOK_SECRET: WEBHOOK_SECRET,
+          MUX_TOKEN_ID: 'integration-test-mux-id',
+          MUX_TOKEN_SECRET: 'integration-test-mux-secret',
+          STRIPE_SECRET_KEY: 'sk_test_integration',
         },
         stdio: 'pipe',
       }
     )
+    webhook.stdout?.on('data', (d) => process.stdout.write(`[webhook] ${d}`))
+    webhook.stderr?.on('data', (d) => process.stderr.write(`[webhook!] ${d}`))
 
     purchase = spawn(
       process.execPath,
@@ -92,6 +122,8 @@ describe('webhook -> purchase pipeline', () => {
         stdio: 'pipe',
       }
     )
+    purchase.stdout?.on('data', (d) => process.stdout.write(`[purchase] ${d}`))
+    purchase.stderr?.on('data', (d) => process.stderr.write(`[purchase!] ${d}`))
 
     await waitForHttp(`http://127.0.0.1:${WEBHOOK_PORT}/webhooks/stripe`)
   })
@@ -110,13 +142,13 @@ describe('webhook -> purchase pipeline', () => {
       type: 'payment_intent.succeeded',
       data: {
         object: {
-          id: 'pi_integration_001',
+          id: PAYMENT_INTENT_ID,
           amount: 1999,
           currency: 'usd',
           status: 'succeeded',
           metadata: {
-            userId: 'user_it_1',
-            videoId: 'video_it_1',
+            userId: USER_ID,
+            videoId: VIDEO_ID,
             purchaseType: 'buy',
           },
         },
@@ -137,7 +169,8 @@ describe('webhook -> purchase pipeline', () => {
     let purchaseRow: any = null
     while (Date.now() < deadline) {
       const result = await dbClient.query(
-        "SELECT * FROM purchase_service.purchases WHERE stripe_payment_intent_id = 'pi_integration_001'"
+        'SELECT * FROM purchase_service.purchases WHERE stripe_payment_intent_id = $1',
+        [PAYMENT_INTENT_ID]
       )
       if (result.rows.length > 0) {
         purchaseRow = result.rows[0]
@@ -151,7 +184,8 @@ describe('webhook -> purchase pipeline', () => {
 
     const outbox = await dbClient.query(
       `SELECT channel, published_at FROM events.outbox
-       WHERE payload->>'paymentIntentId' = 'pi_integration_001'`
+       WHERE payload->>'paymentIntentId' = $1`,
+      [PAYMENT_INTENT_ID]
     )
     assert.equal(outbox.rows.length, 1, 'expected one outbox entry')
     assert.equal(outbox.rows[0].channel, 'purchase:recorded')

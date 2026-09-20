@@ -113,3 +113,8 @@ coverage/
 .turbo/
 *.zip
 *.tar.gz
+
+# ===========================
+# OpenCode
+# ===========================
+.opencode/plan

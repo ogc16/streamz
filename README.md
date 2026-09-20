@@ -2,6 +2,45 @@
 
 > Netflix/Hulu-style pay-per-view video streaming: native iOS (SwiftUI) and Android (Jetpack Compose) clients backed by a Node.js microservices monorepo with PostgreSQL, Redis, Stripe, and Mux.
 
+## Contents
+
+1. [Overview, Features & Roadmap](#1--overview-features--roadmap)
+2. [Screenshots & Preview](#2--screenshots--preview)
+3. [Architecture & System Diagram](#3--architecture--system-diagram)
+4. [Engineering Highlights & Security](#4--engineering-highlights--security)
+5. [Tech Stack Summary](#5--tech-stack-summary)
+6. [Getting Started & Environment Setup](#6--getting-started--environment-setup)
+7. [Payment & Webhook Logic](#7--payment--webhook-logic)
+8. [API Specifications & Payloads](#8--api-specifications--payloads)
+9. [Project Structure](#9--project-structure)
+10. [Testing](#10--testing)
+11. [Deployment](#11--deployment)
+12. [Contributing & Community](#12--contributing--community)
+
+## 1 · Overview, Features & Roadmap
+
+**Streamz** is a complete pay-per-view streaming product that runs end-to-end on your own stack: a mobile-first viewer experience (iOS + Android), a microservices backend, and production deployment paths (Docker Compose and Kubernetes/Helm).
+
+### What's built
+
+- **Native apps** — SwiftUI (iOS, MVVM + `@MainActor`) and Jetpack Compose (Android, MVVM + Hilt), both with secure token storage (Keychain / Keystore-encrypted DataStore) and Stripe PaymentSheet checkout.
+- **Microservices backend** — six TypeScript services (gateway, auth, video, purchase, streaming, webhook) on npm workspaces with shared, type-checked contracts in `@streamz/shared`.
+- **Pay-per-view commerce** — buy or rent any video; rental expiry and access checks enforced on the server, not the client.
+- **Streaming on Mux** — upload URLs, signed HLS playback with rental-aligned TTLs, thumbnails; works optionally without signing keys for local development.
+- **Reliable event pipeline** — signature-verified webhooks publish Redis Pub/Sub events; the purchase service persists via a [transactional outbox](https://microservices.io/patterns/data/transactional-outbox.html) (`events.outbox`) with startup replay, so no purchase is ever lost.
+- **Observability & robustness** — one-command boot, correlation IDs (`X-Request-ID`) across every service, PgBouncer pooling, rate limiting, and JWT hardening.
+- **Deployment** — `docker-compose.yml` for local/VM, plus a parameterized Helm chart under `helm/streamz/` for Kubernetes (see [Deployment](#11--deployment)).
+
+### Roadmap
+
+| Status | Item |
+|--------|------|
+| In progress | CI pipeline that runs the Testcontainers integration suite and mobile builds on every PR |
+| Backlog | Admin video-management UI (curation, pricing, uploader) |
+| Backlog | Player resume/seek state per user profile |
+| Backlog | Push notifications on rental expiry and featured drops |
+| Backlog | Localization (i18n) for iOS + Android |
+
 ## 2 · Screenshots & Preview
 
 - **Interactive HTML prototype:** open [`index.html`](./index.html) in any browser for a click-through preview of the catalog, player, and purchase flows.
@@ -417,6 +456,63 @@ streamz/
 ├── WALKTHROUGH.md          # Detailed change log
 └── README.md
 ```
+
+## 10 · Testing
+
+Requires Docker Desktop (Testcontainers spins up real PostgreSQL and Redis).
+
+```bash
+cd backend
+npm install          # installs the integration-tests workspace too
+npm test -w integration-tests
+```
+
+The suite covers:
+
+- **Migrations** — applies every SQL migration in order against a fresh Postgres and asserts the expected schemas (`auth_service`, `video_service`, `purchase_service`) and tables (`events.outbox`) exist.
+- **Webhook → purchase pipeline** — spins up webhook + purchase services against containerized Postgres/Redis, posts a **signed** `payment_intent.succeeded`, and asserts the purchase row is recorded and the `purchase:recorded` outbox row is published; verifies a forged signature is rejected with `400`.
+
+Webhook payloads can also be rehearsed by hand with the mock harness — see [Local Webhook Testing](#local-webhook-testing).
+
+## 11 · Deployment
+
+### Docker Compose (local / single VM)
+
+```bash
+cd backend
+docker-compose up -d --build
+```
+
+Compose runs PostgreSQL, Redis, **PgBouncer** (transaction pool on `:6432`), and all six services. Point services at infrastructure via `backend/.env` (see [Environment Variables](#environment-variables)).
+
+### Kubernetes (Helm chart)
+
+`helm/streamz/` is a parameterized chart for the same stack (six services + Postgres + Redis + ingress). Chart values control image registry/tag, secrets, replicas, and resource limits.
+
+```bash
+# build + push per-service images (multi-stage Dockerfile, target = service name)
+docker build --target auth -t <registry>/streamz-auth:tag backend/
+# ...repeat for video, purchase, streaming, webhook, gateway
+
+helm template streamz ./helm/streamz --set registry=<registry>,imageTag=tag  # dry-run
+helm install streamz ./helm/streamz --set registry=<registry>,imageTag=tag
+```
+
+See [`k8s/README.md`](./k8s/README.md) for the full build/install/scale runbook.
+
+### Secrets
+
+Never commit real credentials. Compose reads `backend/.env`; the Helm chart takes secrets via values/lookup and injects them as a Kubernetes `Secret`.
+
+## 12 · Contributing & Community
+
+**Streamz welcomes everyone** — first-time open-source contributors and seasoned maintainers alike. We want this repo to be a place where people from any background feel able to contribute code, docs, tests, designs, translations, or ideas.
+
+- **Get started:** read [CONTRIBUTING.md](./CONTRIBUTING.md) — it has a step-by-step onboarding path, from "install the project" to "open your first PR".
+- **Code of conduct:** all participants agree to the [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md). Be excellent to each other.
+- **Good first issues:** look for the `good-first-issue` and `help-wanted` labels; anything tagged `documentation` rarely needs more than `README` courage.
+- **Just want to discuss?** Open a GitHub Discussion or file an issue on [github.com/ogc16/streamz](https://github.com/ogc16/streamz) — questions are welcome, not just bug reports.
+- **Contributor recognition:** contributors who land changes are thanked in the release notes and acknowledged in the project docs.
 
 ## License
 

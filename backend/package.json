@@ -6,7 +6,8 @@
   "workspaces": [
     "shared",
     "services/*",
-    "api-gateway"
+    "api-gateway",
+    "integration-tests"
   ],
   "main": "dist/index.js",
   "scripts": {
