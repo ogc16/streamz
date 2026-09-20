@@ -3,6 +3,7 @@ import dotenv from 'dotenv'
 import { Pool } from 'pg'
 import Stripe from 'stripe'
 import { Redis } from 'ioredis'
+import Mux from '@mux/mux-node'
 
 const app = express()
 
@@ -16,6 +17,11 @@ const pool = new Pool({
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia',
+})
+
+const mux = new Mux({
+  tokenId: process.env.MUX_TOKEN_ID!,
+  tokenSecret: process.env.MUX_TOKEN_SECRET!,
 })
 
 const redis = new Redis({
@@ -121,11 +127,22 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
   }
 })
 
-// Mux webhook
-app.post('/webhooks/mux', express.json(), async (req, res) => {
+// Mux webhook (raw body needed for signature verification)
+app.post('/webhooks/mux', express.raw({ type: 'application/json' }), async (req, res) => {
+  let type: string
+  let data: any
   try {
-    const { type, data } = req.body
+    const body = req.body.toString()
+    mux.webhooks.verifySignature(body, req.headers, process.env.MUX_WEBHOOK_SECRET)
+    const event = JSON.parse(body)
+    type = event.type
+    data = event.data
+  } catch (error) {
+    console.error('Mux webhook signature verification failed:', error instanceof Error ? error.message : error)
+    return res.status(400).json({ error: 'Invalid signature' })
+  }
 
+  try {
     switch (type) {
       case 'video.upload.asset_created': {
         const uploadId = data.id

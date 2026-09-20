@@ -1,8 +1,13 @@
 # Streamz — Pay-Per-View Video Streaming
 
-A Netflix/Hulu-style pay-per-view video streaming app with native iOS (SwiftUI) and Android (Jetpack Compose) clients, powered by a Node.js microservices backend.
+> Netflix/Hulu-style pay-per-view video streaming: native iOS (SwiftUI) and Android (Jetpack Compose) clients backed by a Node.js microservices monorepo with PostgreSQL, Redis, Stripe, and Mux.
 
-## Architecture
+## 2 · Screenshots & Preview
+
+- **Interactive HTML prototype:** open [`index.html`](./index.html) in any browser for a click-through preview of the catalog, player, and purchase flows.
+- Native app screenshots to be added as the mobile clients stabilize.
+
+## 3 · Architecture & System Diagram
 
 ### Backend (Microservices)
 
@@ -14,8 +19,6 @@ A Netflix/Hulu-style pay-per-view video streaming app with native iOS (SwiftUI) 
 | Purchase Service | `4003` | Stripe PaymentIntent, access checks, purchase history |
 | Streaming Service | `4004` | Mux upload URLs, HLS playback, thumbnail generation |
 | Webhook Service | `4005` | Stripe payments, Mux asset events, rental expiry |
-
-**Stack:** Node.js, Express, TypeScript, PostgreSQL, Redis, Stripe, Mux
 
 ### System Diagram
 
@@ -133,23 +136,38 @@ class node_auth_service,node_video_service,node_purchase_service,node_streaming_
 class node_postgres,node_stripe,node_mux,node_redis toneRose
 ```
 
-### iOS App
+## 4 · Engineering Highlights & Security
 
-**Stack:** Swift 5, SwiftUI, AVPlayer, StripePaymentSheet SDK
+### Engineering Highlights
 
-**Architecture:** MVVM with `@MainActor` view models, async/await networking, Keychain token storage
+- **One-command boot** — `npm run dev` starts all six microservices concurrently (auth, video, purchase, streaming, webhook, gateway) with color-coded logs; no per-service terminals.
+- **Type-safe monorepo** — npm workspaces with shared types (`@streamz/shared`); `tsc` builds pass clean across every service and the gateway; ESLint enforced.
+- **Idempotent webhooks** — Stripe payment events dedupe via `ON CONFLICT (stripe_payment_intent_id)`; safe to replay.
+- **Cache invalidation** — purchase/webhook events bust the Redis-backed video & purchase caches immediately.
+- **Access-aware API** — the video service hides purchase-gated content unless the viewer owns a valid rental/purchase.
 
-**Screens:** Login, Home (Netflix-style hero + grid), Video Detail, Player (HLS), Purchase (Stripe PaymentSheet), Profile
+### Security & Reliability
 
-### Android App
+- **Client-side key storage**
+  - *iOS:* tokens and credentials live in **Keychain Services** (`kSecClassGenericPassword`) via `KeychainManager.swift`.
+  - *Android:* tokens are encrypted with an **Android Keystore** AES/GCM key (`AndroidKeyStore`, non-exportable) before persistence, via `TokenManager.kt`. `Access`/`refresh` values are never stored in plaintext.
+- **Webhook verification**
+  - *Stripe:* every `/webhooks/stripe` payload is verified with `stripe.webhooks.constructEvent` against `STRIPE_WEBHOOK_SECRET` (`stripe-signature` header).
+  - *Mux:* every `/webhooks/mux` payload is verified with `mux.webhooks.verifySignature` against `MUX_WEBHOOK_SECRET` (`mux-signature` header).
+  - Requests failing signature checks are rejected with `400` before any state is touched.
+- **Rate limiting** — the API Gateway enforces an **IP-based** limiter (`express-rate-limit`, default key on client IP): 100 requests per 15-minute window, returning `429` beyond that.
+- **JWT rotation** — short-lived access tokens with refresh tokens stored server-side and rotated on refresh.
 
-**Stack:** Kotlin, Jetpack Compose, Hilt, Retrofit, ExoPlayer, Stripe SDK
+## 5 · Tech Stack Summary
 
-**Architecture:** MVVM with `StateFlow`, Hilt DI, Repository pattern
+**Backend:** Node.js 20+, Express 4, TypeScript, PostgreSQL, Redis (ioredis), Stripe, Mux, Zod
 
-**Screens:** Auth, Home (hero pager + grid), Detail, Player (HLS), Purchase (Stripe PaymentSheet), Profile
+| Client | Stack | Architecture |
+|--------|-------|--------------|
+| iOS | Swift 5, SwiftUI, AVPlayer, StripePaymentSheet SDK | MVVM with `@MainActor` view models, async/await networking, Keychain token storage |
+| Android | Kotlin, Jetpack Compose, Hilt, Retrofit, ExoPlayer, Stripe SDK | MVVM with `StateFlow`, Hilt DI, Repository pattern, Keystore-encrypted token storage |
 
-## Getting Started
+## 6 · Getting Started & Environment Setup
 
 ### Prerequisites
 
@@ -160,23 +178,31 @@ class node_postgres,node_stripe,node_mux,node_redis toneRose
 - Stripe account (API keys)
 - Mux account (video streaming)
 
-### Backend Setup
+### One-Command Boot
 
 ```bash
-# Start infrastructure
+# 1. Start infrastructure
 cd backend
 docker-compose up -d
 
-# Install all dependencies (uses npm workspaces)
+# 2. Install all dependencies (uses npm workspaces)
 npm install
 
-# Run individual services
+# 3. Boot ALL microservices from the project root (single command)
+npm run dev
+```
+
+`npm run dev` launches auth, video, purchase, streaming, webhook, and the API gateway together. Logs are prefixed and color-coded per service; if any process exits, the rest are stopped.
+
+### Run Services Individually
+
+```bash
+npm run dev:gateway          # gateway only
 npm run dev -w services/auth
 npm run dev -w services/video
 npm run dev -w services/purchase
 npm run dev -w services/streaming
 npm run dev -w services/webhook
-npm run dev -w api-gateway
 ```
 
 ### Environment Variables
@@ -193,6 +219,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_CURRENCY=usd
 MUX_TOKEN_ID=your-mux-id
 MUX_TOKEN_SECRET=your-mux-secret
+MUX_WEBHOOK_SECRET=your-mux-signing-secret
 ```
 
 > **Security:** `.env` files are git-ignored. Never commit secrets.
@@ -221,7 +248,9 @@ cd android
 3. Replace `pk_test_placeholder` in `StreamzApp.swift` with your Stripe publishable key
 4. Build & run (⌘R)
 
-## Payment Flow
+## 7 · Payment & Webhook Logic
+
+### Payment Flow
 
 1. User browses catalog → selects a video
 2. Chooses **Buy** (permanent) or **Rent** (time-limited)
@@ -231,9 +260,20 @@ cd android
 6. Stripe webhook confirms → purchase recorded in DB (idempotent via `ON CONFLICT`) → access granted
 7. User streams video via Mux HLS URL
 
-## API Endpoints
+### Webhook Handling
+
+| Webhook | Payload | Validation | Effect |
+|---------|---------|------------|--------|
+| `POST /webhooks/stripe` | Stripe events (`payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`) | `stripe-signature` via `STRIPE_WEBHOOK_SECRET` | Records purchase (idempotent), invalidates cache, publishes `purchase:completed` on Redis |
+| `POST /webhooks/mux` | Mux events (`video.upload.asset_created`, `video.asset.ready`, `video.asset.errored`) | `mux-signature` via `MUX_WEBHOOK_SECRET` | Links asset ID, sets playback ID + thumbnail + duration |
+| `POST /webhooks/cleanup-expired` | — (internal/scheduler) | — | Marks expired rentals as `expired` |
+
+## 8 · API Specifications & Payloads
+
+All routes are proxied through the gateway at `http://localhost:3000`. Payloads are JSON.
 
 ### Auth
+
 - `POST /api/auth/register` — `{ email, password, name }`
 - `POST /api/auth/login` — `{ email, password }`
 - `POST /api/auth/refresh` — `{ refreshToken }`
@@ -241,6 +281,7 @@ cd android
 - `GET /api/auth/me` — Current user info
 
 ### Videos
+
 - `GET /api/videos` — List with filters (genre, search, page, limit, sort)
 - `GET /api/videos/featured` — Featured videos
 - `GET /api/videos/genres` — Genre list with counts
@@ -248,22 +289,63 @@ cd android
 - `POST /api/videos` — Create video (admin)
 
 ### Purchases
-- `POST /api/purchases/create-payment-intent` — `{ videoId, type }` (validates purchase type)
+
 - `GET /api/purchases` — User's purchase history
 - `GET /api/purchases/check/:videoId` — Access check
 
+#### `POST /api/purchases/create-payment-intent`
+
+Creates a Stripe PaymentIntent for a video. The access entitlement is granted only after the `payment_intent.succeeded` webhook arrives.
+
+- Request (`Authorization: Bearer <token>`):
+
+```json
+{ "videoId": "vid_123", "type": "RENTAL" }
+```
+
+- Response (`200 OK`):
+
+```json
+{
+  "clientSecret": "pi_3MtwB2LkdIwXvc3w1_secret_AbC123XYZ",
+  "amount": 499
+}
+```
+
+> `amount` is in minor units (cents) of `STRIPE_CURRENCY` (default `usd`).
+> Errors: `404` unknown video · `400` unsupported purchase type / no payment profile · `409` already purchased.
+
 ### Streaming
-- `POST /api/stream/upload-url` — Create Mux upload URL for a video
-- `POST /api/stream/upload-complete` — Finalize upload (looks up video by upload ID)
+
 - `GET /api/stream/playback/:playbackId` — Signed playback URL
+
+#### `POST /api/stream/upload-url`
+
+- Request (`Authorization: Bearer <token>`):
+
+```json
+{ "videoId": "vid_123" }
+```
+
+- Response (`200 OK`):
+
+```json
+{
+  "uploadUrl": "https://up.mux.com/ZifJCp1ECBeiJ4IOxsAYlgOPJKkq3UyJoN01qubtJ4rgk",
+  "uploadId": "CfO100Wm022gJd04AMh2uPvKCagHI01w5EnVqOjDVO800"
+}
+```
+
+- `POST /api/stream/upload-complete` — Finalize upload (looks up video by upload ID)
 - `POST /api/stream/thumbnail/:playbackId` — Generate thumbnail
 
 ### Webhooks
+
 - `POST /webhooks/stripe` — Stripe event handling (idempotent via `ON CONFLICT`)
 - `POST /webhooks/mux` — Mux asset processing events
 - `POST /webhooks/cleanup-expired` — Expired rental cleanup
 
-## Database Schema
+### Database Schema
 
 Three service-specific schemas in PostgreSQL:
 
@@ -272,19 +354,19 @@ Three service-specific schemas in PostgreSQL:
 - `purchase_service.purchases` — Payment records, rental expiry (idempotent on `stripe_payment_intent_id`)
 - `auth_tokens.refresh_tokens` — Token rotation
 
-## Project Structure
+## 9 · Project Structure
 
 ```
 streamz/
 ├── backend/
-│   ├── api-gateway/        # Request routing, JWT validation
+│   ├── api-gateway/        # Request routing, JWT validation, rate limiting
 │   ├── migrations/         # SQL schema (idempotent)
 │   ├── services/
 │   │   ├── auth/           # Registration, login, tokens
 │   │   ├── video/          # Catalog, search, access-aware listings
 │   │   ├── purchase/       # Stripe PaymentIntent, purchase history
 │   │   ├── streaming/      # Mux uploads, HLS playback
-│   │   └── webhook/        # Stripe + Mux webhook handlers
+│   │   └── webhook/        # Stripe + Mux webhook handlers (signature-verified)
 │   ├── shared/             # Shared types, schemas, errors (@streamz/shared)
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -295,6 +377,7 @@ streamz/
 │   ├── Views/              # SwiftUI views
 │   └── Helpers/            # KeychainManager, StripeManager
 ├── android/                # Jetpack Compose Android app
+├── index.html              # Interactive HTML prototype
 ├── .gitignore
 ├── WALKTHROUGH.md          # Detailed change log
 └── README.md
