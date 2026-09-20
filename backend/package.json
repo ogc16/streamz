@@ -17,6 +17,7 @@
     "start": "npm run start -w @streamz/api-gateway",
     "migrate": "ts-node migrations/run.ts",
     "mock:webhook": "node scripts/mock-webhooks.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
     "lint": "eslint services/**/*.ts api-gateway/**/*.ts"
   },
   "dependencies": {
