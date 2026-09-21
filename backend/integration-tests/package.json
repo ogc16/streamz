@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Integration tests for Streamz microservices using Testcontainers",
+  "license": "MIT",
   "scripts": {
     "test": "node --import tsx --test tests/*.test.ts",
     "test:watch": "node --import tsx --watch --test tests/*.test.ts"

@@ -2,6 +2,7 @@
   "name": "streamz-backend",
   "version": "1.0.0",
   "description": "Streamz pay-per-view video streaming backend",
+  "license": "MIT",
   "private": true,
   "workspaces": [
     "shared",

@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn, ChildProcess } from 'node:child_process'
-import { createHmac } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import { Client } from 'pg'
 import Redis from 'ioredis'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -14,6 +14,8 @@ const servicesDir = join(__dirname, '..', '..', 'services')
 const WEBHOOK_PORT = 4105
 const JWT_SECRET = 'integration-test-jwt-secret'
 const WEBHOOK_SECRET = 'whsec_integration_test'
+// Ephemeral per-run password so no credential ever lives in the repo.
+const PG_PASSWORD = randomUUID()
 
 const USER_ID = '00000000-0000-4000-8000-000000000001'
 const VIDEO_ID = '00000000-0000-4000-8000-000000000002'
@@ -51,7 +53,7 @@ describe('webhook -> purchase pipeline', () => {
       .withEnvironment({
         POSTGRES_DB: 'streamz',
         POSTGRES_USER: 'streamz',
-        POSTGRES_PASSWORD: 'streamz_secret',
+        POSTGRES_PASSWORD: PG_PASSWORD,
       })
       .withExposedPorts(5432)
       .withWaitStrategy(Wait.forLogMessage('ready to accept connections', 2))
@@ -61,7 +63,7 @@ describe('webhook -> purchase pipeline', () => {
       .withWaitStrategy(Wait.forLogMessage('Ready to accept connections'))
       .start()
 
-    const connectionString = `postgresql://streamz:streamz_secret@127.0.0.1:${pg.getMappedPort(5432)}/streamz`
+    const connectionString = `postgresql://streamz:${PG_PASSWORD}@127.0.0.1:${pg.getMappedPort(5432)}/streamz`
 
     const db = new Client({ connectionString })
     await db.connect()

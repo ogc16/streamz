@@ -1,5 +1,6 @@
 {
   "name": "@streamz/api-gateway",
+  "license": "MIT",
   "version": "1.0.0",
   "main": "dist/index.js",
   "scripts": {

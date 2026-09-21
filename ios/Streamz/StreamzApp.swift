@@ -59,7 +59,7 @@ struct StreamzApp: App {
     @StateObject private var authVM = AuthViewModel()
 
     init() {
-        StripeAPI.defaultPublishableKey = "pk_test_placeholder"
+        StripeAPI.defaultPublishableKey = Secrets.stripePublishableKey
     }
 
     var body: some Scene {

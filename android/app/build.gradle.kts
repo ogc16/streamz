@@ -17,6 +17,18 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        // Secrets resolved from gitignored local.properties (never committed).
+        // Fallbacks = local-dev defaults only; CI/prod override via local.properties.
+        val localProps = rootProject.file("local.properties").takeIf { it.exists() }?.let {
+            java.util.Properties().apply { load(it.inputStream()) }
+        }
+        val baseUrl = localProps?.getProperty("API_BASE_URL")
+            ?: "http://10.0.2.2:3000/"
+        val stripePk = localProps?.getProperty("STRIPE_PUBLISHABLE_KEY")
+            ?: "pk_test_stripe_key"
+        buildConfigField("String", "API_BASE_URL", "\"$baseUrl\"")
+        buildConfigField("String", "STRIPE_PUBLISHABLE_KEY", "\"$stripePk\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -25,7 +37,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -44,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

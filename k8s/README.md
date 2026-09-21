@@ -32,6 +32,7 @@ sealed secrets / External Secrets and a values override:
 
 ```sh
 helm install streamz ./helm/streamz \
+  --set secret.POSTGRES_PASSWORD="$(openssl rand -hex 32)" \
   --set secret.JWT_SECRET="$(openssl rand -hex 32)" \
   --set secret.JWT_REFRESH_SECRET="$(openssl rand -hex 32)" \
   --set secret.STRIPE_SECRET_KEY=sk_live_... \

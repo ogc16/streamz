@@ -4,7 +4,8 @@ services:
     environment:
       POSTGRES_DB: streamz
       POSTGRES_USER: streamz
-      POSTGRES_PASSWORD: streamz_secret
+      # Password comes from backend/.env (git-ignored); fail fast if unset.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in backend/.env}
     ports:
       - "5432:5432"
     volumes:
@@ -30,9 +31,12 @@ services:
     image: edoburu/pgbouncer:latest
     ports:
       - "6432:6432"
+    # The image entrypoint derives the md5 auth entry from DATABASE_URL, so no
+    # committed userlist.txt is needed. Password originates from backend/.env.
+    environment:
+      DATABASE_URL: postgresql://streamz:${POSTGRES_PASSWORD}@postgres:5432/streamz
     volumes:
       - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
-      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,7 +74,7 @@ services:
       - "4001:4001"
     environment:
       AUTH_SERVICE_PORT: 4001
-      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
+      DATABASE_URL: postgresql://streamz:${POSTGRES_PASSWORD}@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
@@ -94,7 +98,7 @@ services:
       - "4002:4002"
     environment:
       VIDEO_SERVICE_PORT: 4002
-      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
+      DATABASE_URL: postgresql://streamz:${POSTGRES_PASSWORD}@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -115,7 +119,7 @@ services:
       - "4003:4003"
     environment:
       PURCHASE_SERVICE_PORT: 4003
-      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
+      DATABASE_URL: postgresql://streamz:${POSTGRES_PASSWORD}@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_CURRENCY: usd
@@ -138,7 +142,7 @@ services:
       - "4004:4004"
     environment:
       STREAMING_SERVICE_PORT: 4004
-      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
+      DATABASE_URL: postgresql://streamz:${POSTGRES_PASSWORD}@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       MUX_TOKEN_ID: ${MUX_TOKEN_ID}
       MUX_TOKEN_SECRET: ${MUX_TOKEN_SECRET}
@@ -164,7 +168,7 @@ services:
       - "4005:4005"
     environment:
       WEBHOOK_SERVICE_PORT: 4005
-      DATABASE_URL: postgresql://streamz:streamz_secret@pgbouncer:6432/streamz
+      DATABASE_URL: postgresql://streamz:${POSTGRES_PASSWORD}@pgbouncer:6432/streamz
       JWT_SECRET: ${JWT_SECRET}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}

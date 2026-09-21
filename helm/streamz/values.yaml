@@ -19,19 +19,20 @@ autoscaling:
   targetMemoryUtilizationPercentage: 80
 
 # Resource requests/limits per service; falls back to `default`.
+# ephemeral-storage limits bound container disk usage (scratch/log spill).
 resources:
   default:
     requests: { cpu: 100m, memory: 128Mi }
-    limits: { cpu: "1", memory: 512Mi }
+    limits: { cpu: "1", memory: 512Mi, ephemeral-storage: 1Gi }
   gateway:
     requests: { cpu: 200m, memory: 256Mi }
-    limits: { cpu: "2", memory: 1Gi }
+    limits: { cpu: "2", memory: 1Gi, ephemeral-storage: 2Gi }
   streaming:
     requests: { cpu: 200m, memory: 384Mi }
-    limits: { cpu: "2", memory: 1Gi }
+    limits: { cpu: "2", memory: 1Gi, ephemeral-storage: 2Gi }
   purchase:
     requests: { cpu: 150m, memory: 256Mi }
-    limits: { cpu: "1", memory: 768Mi }
+    limits: { cpu: "1", memory: 768Mi, ephemeral-storage: 2Gi }
 
 services:
   gateway:    { enabled: true,  port: 3000, target: gateway,    replicas: 2 }
@@ -50,13 +51,19 @@ postgres:
   port: "5432"
   db: streamz
   user: streamz
-  # Override in production (values override or sealed secret)
-  password: streamz_secret
+  # Password is NOT kept here - set secret.POSTGRES_PASSWORD (required) at install
+  # time, e.g. --set secret.POSTGRES_PASSWORD="$(openssl rand -base64 32)".
   storage: 10Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi, ephemeral-storage: 2Gi }
 
 redis:
   enabled: true
   image: redis:7-alpine
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: "1", memory: 256Mi, ephemeral-storage: 512Mi }
 
 pgbouncer:
   enabled: false
@@ -69,9 +76,10 @@ ingress:
   className: nginx
   host: streamz.example.com
 
-# Sensitive config. Provide in production via `--set secret.JWT_SECRET=...`
+# Sensitive config. Provide in production via `--set secret.*=...`
 # or a values override that sources from a secret store.
 secret:
+  POSTGRES_PASSWORD: change-me-generate-a-strong-one
   JWT_SECRET: change-me
   JWT_REFRESH_SECRET: change-me
   STRIPE_SECRET_KEY: ""

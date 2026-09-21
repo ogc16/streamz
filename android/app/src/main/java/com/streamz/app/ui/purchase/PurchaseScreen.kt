@@ -122,7 +122,7 @@ fun PurchaseScreen(
         val secret = uiState.clientSecret ?: return@LaunchedEffect
         if (uiState.isLoading) return@LaunchedEffect
 
-        PaymentConfiguration.init(context, "pk_test_stripe_key")
+        PaymentConfiguration.init(context, BuildConfig.STRIPE_PUBLISHABLE_KEY)
         val sheet = PaymentSheet(
             activity = context as android.app.Activity,
             paymentSheetResultCallback = { result ->

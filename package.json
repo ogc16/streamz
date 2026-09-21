@@ -1,6 +1,7 @@
 {
   "name": "streamz",
   "version": "1.0.0",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "npm --prefix backend run dev",

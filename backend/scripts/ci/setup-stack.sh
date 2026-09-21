@@ -12,7 +12,10 @@ export STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-whsec_ci_dummy}
 export MUX_TOKEN_ID=${MUX_TOKEN_ID:-ci-mux-id}
 export MUX_TOKEN_SECRET=${MUX_TOKEN_SECRET:-ci-mux-secret}
 export MUX_WEBHOOK_SECRET=${MUX_WEBHOOK_SECRET:-whsec_ci_dummy}
-export DATABASE_URL=${DATABASE_URL:-postgresql://streamz:streamz_secret@localhost:5432/streamz}
+# The CI postgres container reads POSTGRES_PASSWORD; generate a fresh random
+# value per run instead of committing one.
+export POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)}
+export DATABASE_URL=${DATABASE_URL:-postgresql://streamz:${POSTGRES_PASSWORD}@localhost:5432/streamz}
 # Load tests and chaos drives come from a single source IP; relax the per-IP cap.
 export RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-1000000}
 # Native bcrypt compares run on libuv's threadpool; widen it so logins parallelize.

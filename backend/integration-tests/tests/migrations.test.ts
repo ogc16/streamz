@@ -4,8 +4,11 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { Client } from 'pg'
 import { GenericContainer, StartedTestContainer, Wait } from 'testcontainers'
+import { randomUUID } from 'node:crypto'
 
 const migrationsDir = join(__dirname, '..', '..', 'migrations')
+// Ephemeral per-run password so no credential ever lives in the repo.
+const PG_PASSWORD = randomUUID()
 
 describe('database migrations', () => {
   let pg: StartedTestContainer
@@ -16,13 +19,13 @@ describe('database migrations', () => {
       .withEnvironment({
         POSTGRES_DB: 'streamz',
         POSTGRES_USER: 'streamz',
-        POSTGRES_PASSWORD: 'streamz_secret',
+        POSTGRES_PASSWORD: PG_PASSWORD,
       })
       .withExposedPorts(5432)
       .withWaitStrategy(Wait.forLogMessage('ready to accept connections', 2))
       .start()
     client = new Client({
-      connectionString: `postgresql://streamz:streamz_secret@127.0.0.1:${pg.getMappedPort(5432)}/streamz`,
+      connectionString: `postgresql://streamz:${PG_PASSWORD}@127.0.0.1:${pg.getMappedPort(5432)}/streamz`,
     })
     await client.connect()
   })

@@ -1,6 +1,7 @@
 {
   "name": "@streamz/video-service",
   "version": "1.0.0",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn src/index.ts",

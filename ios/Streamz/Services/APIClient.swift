@@ -4,7 +4,7 @@ final class APIClient {
 
     static let shared = APIClient()
 
-    let baseURL = URL(string: "http://localhost:3000")!
+    let baseURL = URL(string: Secrets.apiBaseURL)!
 
     private let session: URLSession
     private let decoder: JSONDecoder

@@ -258,7 +258,9 @@ npm run dev -w services/webhook
 Copy `backend/.env.example` to `backend/.env` and fill in your credentials:
 
 ```env
-DATABASE_URL=postgresql://postgres:password@localhost:5432/streamz
+# Generate a strong random value (e.g. openssl rand -hex 32); compose requires it.
+POSTGRES_PASSWORD=your-database-password
+DATABASE_URL=postgresql://streamz:your-database-password@localhost:5432/streamz
 JWT_SECRET=your-secret
 JWT_REFRESH_SECRET=your-refresh-secret
 JWT_EXPIRES_IN=7d
@@ -516,4 +518,4 @@ Never commit real credentials. Compose reads `backend/.env`; the Helm chart take
 
 ## License
 
-Private — All rights reserved.
+[MIT](./LICENSE) — Copyright (c) 2026 Streamz contributors.

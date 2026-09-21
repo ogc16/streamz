@@ -1,8 +1,4 @@
 {{- $fullname := include "streamz.fullname" . }}
-{{- $dbUrl := printf "postgresql://%s:%s@%s-postgres:%s/%s" .Values.postgres.user .Values.postgres.password $fullname .Values.postgres.port .Values.postgres.db }}
-{{- if .Values.pgbouncer.enabled }}
-  {{- $dbUrl = printf "postgresql://%s:%s@%s-pgbouncer:6432/%s" .Values.postgres.user .Values.postgres.password $fullname .Values.postgres.db }}
-{{- end }}
 {{- range $name, $svc := .Values.services }}
 {{- if $svc.enabled }}
 apiVersion: apps/v1
@@ -22,6 +18,9 @@ spec:
       labels:
         app: {{ $name }}
     spec:
+      # These workloads never talk to the Kubernetes API; drop the mounted
+      # service-account token.
+      automountServiceAccountToken: false
       containers:
         - name: {{ $name }}
           image: "{{ $.Values.image.repository }}/{{ $svc.target }}:{{ $.Values.image.tag }}"
@@ -39,7 +38,10 @@ spec:
             - name: {{ upper $name }}_SERVICE_PORT
               value: {{ $svc.port | quote }}
             - name: DATABASE_URL
-              value: {{ $dbUrl | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: DATABASE_URL
             - name: REDIS_HOST
               valueFrom:
                 configMapKeyRef:

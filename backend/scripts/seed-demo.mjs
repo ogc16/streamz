@@ -9,7 +9,8 @@ import { Client } from 'pg'
 import bcrypt from 'bcryptjs'
 import { randomUUID } from 'node:crypto'
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://streamz:streamz_secret@localhost:5432/streamz'
+// DATABASE_URL is required; never fall back to a hardcoded credential.
+const connectionString = process.env.DATABASE_URL
 
 const DEMO_USER = {
   email: 'demo@streamz.test',

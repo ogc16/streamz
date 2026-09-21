@@ -2,6 +2,7 @@
   "name": "streamz-design",
   "version": "1.0.0",
   "description": "Google Stitch SDK tooling for generating Streamz UI design variants",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
