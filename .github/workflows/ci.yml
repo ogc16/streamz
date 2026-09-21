@@ -136,6 +136,8 @@ jobs:
       - name: Install deps
         working-directory: backend
         run: npm ci
+      - name: Provision CI DB password
+        run: echo "POSTGRES_PASSWORD=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 24)" >> "$GITHUB_ENV"
       - name: Boot stack
         working-directory: backend
         run: bash scripts/ci/setup-stack.sh
