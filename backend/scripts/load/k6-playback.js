@@ -7,7 +7,7 @@ const PLAYBACK_ID = __ENV.PLAYBACK_ID || 'demoPlaybackBuy'
 
 export const options = {
   stages: [
-    { duration: __ENV.RAMP || '10s', target: Number(__ENV.VUS_INIT || 200) },
+    { duration: __ENV.RAMP || '10s', target: Number(__ENV.VUS_INIT || __ENV.VUS_MAX || 200) },
     { duration: __ENV.DURATION || '30s', target: Number(__ENV.VUS_MAX || 1000) },
     { duration: '10s', target: 0 },
   ],

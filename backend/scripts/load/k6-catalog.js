@@ -2,11 +2,17 @@ import http from 'k6/http'
 import { check } from 'k6'
 
 const BASE = __ENV.BASE_URL || 'http://localhost:3000'
+const VUS_MAX = Number(__ENV.VUS_MAX || 2000)
+const VUS_INIT = Number(__ENV.VUS_INIT || VUS_MAX)
 
 export const options = {
   stages: [
-    { duration: __ENV.RAMP || '10s', target: Number(__ENV.VUS_INIT || 500) },
-    { duration: __ENV.DURATION || '30s', target: Number(__ENV.VUS_MAX || 2000) },
+    // Stage 1 ramps to the rate-limit gate (VUS_INIT); if unset it defaults to
+    // VUS_MAX so we never spike past the gate a CI run is validating. Ramping to
+    // a larger VUS_INIT than the configured gate overshoots latency and fails the
+    // P95 SLO check on host-limited runners for reasons unrelated to the service.
+    { duration: __ENV.RAMP || '10s', target: VUS_INIT },
+    { duration: __ENV.DURATION || '30s', target: VUS_MAX },
     { duration: '10s', target: 0 },
   ],
   thresholds: {

@@ -65,20 +65,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 }))
 
-app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: Number(process.env.RATE_LIMIT_MAX) || 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later' },
-  // Redis-backed store so throttling is consistent across scaled gateway
-  // replicas (an in-memory store is per-pod and bypassable behind proxies).
-  store: new RedisStore({
-    sendCommand: (...args: string[]) => (redis.call as (...a: string[]) => Promise<string>)(...args),
-    prefix: 'rl:streamz:',
-  }),
-}))
-
 app.use(
   healthRouter('streamz-api-gateway', [
     {
@@ -92,6 +78,22 @@ app.use(
 )
 
 app.get('/metrics', metricsHandler(registry))
+
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_MAX) || 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+  // Redis-backed store so throttling is consistent across scaled gateway
+  // replicas (an in-memory store is per-pod and bypassable behind proxies).
+  // Mounted after /health and /metrics so readiness can report Redis outages
+  // (503) instead of hanging in this store's buffered command queue.
+  store: new RedisStore({
+    sendCommand: (...args: string[]) => (redis.call as (...a: string[]) => Promise<string>)(...args),
+    prefix: 'rl:streamz:',
+  }),
+}))
 
 async function authMiddleware(req: any, _res: any, next: any) {
   const fullPath = req.baseUrl + req.path
