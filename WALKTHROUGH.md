@@ -24,7 +24,7 @@
 
 **Problem 2:** Stripe SDK was never initialized with a publishable key, causing runtime failures when attempting to present `PaymentSheet`.
 
-**Fix:** Added `import StripePaymentSheet` and `StripeAPI.defaultPublishableKey = "pk_test_placeholder"` in `StreamzApp.init()`. The placeholder must be replaced with the real test/live key.
+**Fix:** Added `import StripePaymentSheet` and `StripeAPI.defaultPublishableKey = "stripe-key-pls-set-in-info-plist"` in `StreamzApp.init()`. The placeholder must be replaced with the real test/live key.
 
 ### 1.3 `ios/Streamz/Services/APIClient.swift`
 

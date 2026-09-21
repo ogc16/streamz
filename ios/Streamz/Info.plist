@@ -46,7 +46,7 @@
 	<key>API_BASE_URL</key>
 	<string>http://localhost:3000</string>
 	<key>STRIPE_PUBLISHABLE_KEY</key>
-	<string>pk_test_placeholder</string>
+	<string>stripe-key-pls-set-in-info-plist</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

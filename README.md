@@ -300,7 +300,7 @@ cd android
 
 1. Open `ios/Streamz/` in Xcode
 2. Add Stripe package dependency: `https://github.com/stripe/stripe-ios` (latest major version)
-3. Replace `pk_test_placeholder` in `StreamzApp.swift` with your Stripe publishable key
+3. Replace `stripe-key-pls-set-in-info-plist` in `StreamzApp.swift` with your Stripe publishable key
 4. Build & run (⌘R)
 
 ## 7 · Payment & Webhook Logic

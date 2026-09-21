@@ -19,7 +19,7 @@ enum Secrets {
 
     static var stripePublishableKey: String {
         Bundle.main.object(forInfoDictionaryKey: "STRIPE_PUBLISHABLE_KEY") as? String
-            ?? "pk_test_stripe_key"
+            ?? "stripe-key-pls-set-in-info-plist"
     }
 }
 </content>
