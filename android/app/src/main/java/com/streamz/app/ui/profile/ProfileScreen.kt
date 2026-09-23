@@ -140,7 +140,7 @@ fun ProfileScreen(
 
                             Spacer(modifier = Modifier.height(24.dp))
 
-                            HorizontalDivider(color = MediumGray)
+                            Divider(color = MediumGray)
                         }
                     }
 

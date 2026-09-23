@@ -1,5 +1,6 @@
 package com.streamz.app.data.remote
 
+import com.streamz.app.BuildConfig
 import com.streamz.app.data.local.TokenManager
 import com.streamz.app.data.remote.dto.RefreshRequest
 import kotlinx.coroutines.flow.first
@@ -17,11 +18,11 @@ import javax.inject.Singleton
 class ApiClient @Inject constructor(
     private val tokenManager: TokenManager
 ) {
-    private val api: ApiService by lazy {
+    private val apiService: ApiService by lazy {
         createApiService()
     }
 
-    fun getApi(): ApiService = api
+    fun getApi(): ApiService = apiService
 
     fun createApiService(baseUrl: String = BASE_URL): ApiService {
         val loggingInterceptor = HttpLoggingInterceptor().apply {
@@ -56,7 +57,9 @@ class ApiClient @Inject constructor(
                                 .build()
                             val refreshService = retrofit.create(ApiService::class.java)
                             try {
-                                val refreshResponse = refreshService.refresh(RefreshRequest(refreshToken))
+                                val refreshResponse = runBlocking {
+                                    refreshService.refresh(RefreshRequest(refreshToken))
+                                }
                                 runBlocking {
                                     tokenManager.saveTokens(
                                         refreshResponse.accessToken,

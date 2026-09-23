@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.activity.ComponentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stripe.android.PaymentConfiguration
 import com.stripe.android.paymentsheet.PaymentSheet
 import com.stripe.android.paymentsheet.PaymentSheetResult
+import com.streamz.app.BuildConfig
 import com.streamz.app.data.repository.PurchaseRepository
 import com.streamz.app.ui.theme.*
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -124,8 +126,8 @@ fun PurchaseScreen(
 
         PaymentConfiguration.init(context, BuildConfig.STRIPE_PUBLISHABLE_KEY)
         val sheet = PaymentSheet(
-            activity = context as android.app.Activity,
-            paymentSheetResultCallback = { result ->
+            activity = context as ComponentActivity,
+            callback = { result ->
                 viewModel.onPaymentResult(result, videoId, onSuccess)
             }
         )
